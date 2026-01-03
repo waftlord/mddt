@@ -80,9 +80,11 @@ document.addEventListener('DOMContentLoaded', function () {
         consider supporting its development. Support helps cover hosting and continued development and maintenance.
       </p>
 
-      <p>
-        Contributions, bug reports, and feature suggestions are welcome.
-      </p>
+  <p>
+  Contributions, bug reports, and feature suggestions are welcome —
+  please open an issue or pull request at
+  <a href="https://github.com/waftlord/mddt">github.com/waftlord/mddt</a>.
+</p>
 
       <h3>Contact</h3>
  <p>
