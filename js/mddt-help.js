@@ -83,7 +83,7 @@ document.addEventListener('DOMContentLoaded', function () {
   <p>
   Contributions, bug reports, and feature suggestions are welcome —
   please open an issue or pull request at
-  <a href="https://github.com/waftlord/mddt">github.com/waftlord/mddt</a>.
+  <a href="https://github.com/waftlord/mddt">github.com/waftlord/mddt</a>
 </p>
 
       <h3>Contact</h3>
