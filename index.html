@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>MDDT v2.0</title>
+
+<!-- Local CSS -->
+<link href="css/styles.css" rel="stylesheet"/>
+
+<!-- Vendor CSS (CDN) -->
+<link href="https://cdn.jsdelivr.net/npm/nouislider@15.7.1/dist/nouislider.min.css" rel="stylesheet"/>
+</head>
+
+<body class="dark-mode mddt-shell">
+<div class="app-shell">
+  <div aria-label="App" class="sidebar-header">
+    <button aria-controls="systemMidiModal" aria-haspopup="dialog" class="brand--hero brand" id="systemMidiLauncher" type="button">
+      <img alt="MDDT" class="brand-logo" src="assets/mdlogo.png"/>
+      <div class="brand-meta">
+        <div class="brand-title">MDDT</div>
+      </div>
+    </button>
+  </div>
+
+  <header aria-label="Slots" class="top-slots">
+    <div aria-label="Slot Strip" class="top-slots-strip">
+      <div aria-label="Global Slots" class="slot-group">
+        <div class="slot-group-title">GLB</div>
+        <div id="globalSlotsContainer"></div>
+      </div>
+
+      <div aria-label="Kit Slots" class="slot-group">
+        <div class="slot-group-title">KITS</div>
+        <div id="kitSlotsContainer"></div>
+      </div>
+
+      <div aria-label="Pattern Slots" class="slot-group slot-group-patterns">
+        <div class="slot-group-title">PATTERNS</div>
+        <div class="bank-container" id="topPatternBanks">
+          <div id="bankColAE"></div>
+          <div id="bankColBF"></div>
+          <div id="bankColCG"></div>
+          <div id="bankColDH"></div>
+        </div>
+      </div>
+
+      <div aria-label="Song Slots" class="slot-group">
+        <div class="slot-group-title">SONGS</div>
+        <div id="songSlotsContainer"></div>
+      </div>
+    </div>
+
+    <!-- Collapsible info panel -->
+    <details aria-label="Info Panel" class="slot-group slot-group-info" open="">
+      <summary class="slot-group-title">INFO</summary>
+      <div aria-live="polite" class="info-panel" id="infoPanel" role="note">
+        <div class="info-panel-body" id="hoverInfo">
+          Hover a slot, control, or button to see what it does.
+        </div>
+      </div>
+    </details>
+  </header>
+
+  <aside aria-label="Navigation" class="sidebar">
+    <nav aria-label="Panels" class="side-nav">
+      <button aria-current="page" class="nav-btn is-active" data-panel="midi" type="button">TOOLS</button>
+      <button class="nav-btn" data-panel="kit" type="button">KIT</button>
+      <button class="nav-btn" data-panel="pattern" type="button">PATTERN</button>
+      <button class="nav-btn" data-panel="song" type="button">SONG</button>
+      <button class="nav-btn" data-panel="global" type="button">GLOBAL</button>
+      <button class="nav-btn" data-panel="uw" type="button">UW</button>
+      <button class="nav-btn" data-panel="lab" type="button">LAB</button>
+      <button class="nav-btn" data-panel="skewclid" type="button">SKEWCLID</button>
+      <button class="nav-btn" data-panel="nodetrix" type="button">NODETRIX</button>
+      <button class="nav-btn" data-panel="help" type="button">ABOUT</button>
+    </nav>
+  </aside>
+
+  <div class="main-area">
+    <main aria-label="Panel Content" class="panel-host">
+
+      <!-- TOOLS PANEL -->
+      <section class="panel is-active" data-panel-id="midi">
+        <div class="panel-header">TOOLS</div>
+        <div class="panel-content visible">
+          <div class="tools-grid">
+
+            <div class="tools-col-pos">
+              <h3>POSITION</h3>
+              <p class="tools-hint"></p>
+
+              <div class="pos-row">
+                <div class="pos-label">Globals</div>
+                <div class="pos-control">
+                  <div class="pos-values">
+                    <span>From <output id="pos-globals-start">1</output></span>
+                    <span>To <output id="pos-globals-end">8</output></span>
+                  </div>
+                  <div class="pos-slider" id="slider-globals"></div>
+                  <div class="pos-minmax"><span>1</span><span>8</span></div>
+                </div>
+              </div>
+
+              <div class="pos-row">
+                <div class="pos-label">Kits</div>
+                <div class="pos-control">
+                  <div class="pos-values">
+                    <span>From <output id="pos-kits-start">1</output></span>
+                    <span>To <output id="pos-kits-end">64</output></span>
+                  </div>
+                  <div class="pos-slider" id="slider-kits"></div>
+                  <div class="pos-minmax"><span>1</span><span>64</span></div>
+                </div>
+              </div>
+
+              <div class="pos-row">
+                <div class="pos-label">Patterns</div>
+                <div class="pos-control">
+                  <div class="pos-values">
+                    <span>From <output id="pos-patterns-start">A01</output></span>
+                    <span>To <output id="pos-patterns-end">H16</output></span>
+                  </div>
+                  <div class="pos-slider" id="slider-patterns"></div>
+                  <div class="pos-minmax"><span>A01</span><span>H16</span></div>
+                </div>
+              </div>
+
+              <div class="pos-row">
+                <div class="pos-label">Songs</div>
+                <div class="pos-control">
+                  <div class="pos-values">
+                    <span>From <output id="pos-songs-start">1</output></span>
+                    <span>To <output id="pos-songs-end">32</output></span>
+                  </div>
+                  <div class="pos-slider" id="slider-songs"></div>
+                  <div class="pos-minmax"><span>1</span><span>32</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="tools-col-receive">
+              <h3>RECEIVE</h3>
+              <fieldset>
+                <button class="tool-button" data-pulse-scope="receive" data-pulse-target="all" onclick="onClickReceiveAll()">ALL</button>
+                <div class="tool-check-row">
+                  <label>G <input checked="" id="recvCheckG" type="checkbox"/></label>
+                  <label>K <input checked="" id="recvCheckK" type="checkbox"/></label>
+                  <label>P <input checked="" id="recvCheckP" type="checkbox"/></label>
+                  <label>S <input checked="" id="recvCheckS" type="checkbox"/></label>
+                </div>
+                <button class="bulk-cancel-btn" id="bulkCancelReceiveBtn" onclick="cancelBulkOperation('receive')" style="display: none;">Cancel</button>
+              </fieldset>
+
+              <div class="tool-stack">
+                <button class="tool-button" data-pulse-target="globals" onclick="requestGlobalDump()">Global</button>
+                <button class="tool-button" data-pulse-target="kits" onclick="requestKitDump()">Kit</button>
+                <button class="tool-button" data-pulse-target="patterns" onclick="requestPatternDump()">Pattern</button>
+                <button class="tool-button" data-pulse-target="songs" onclick="requestSongDump()">Song</button>
+              </div>
+            </div>
+
+            <div class="tools-col-send">
+              <h3>SEND</h3>
+              <fieldset>
+                <button class="tool-button" data-pulse-scope="send" data-pulse-target="all" onclick="onClickSendAll()">ALL</button>
+                <div class="tool-check-row">
+                  <label>G <input checked="" id="sendCheckG" type="checkbox"/></label>
+                  <label>K <input checked="" id="sendCheckK" type="checkbox"/></label>
+                  <label>P <input checked="" id="sendCheckP" type="checkbox"/></label>
+                  <label>S <input checked="" id="sendCheckS" type="checkbox"/></label>
+                </div>
+                <button class="bulk-cancel-btn" id="bulkCancelSendBtn" onclick="cancelBulkOperation('send')" style="display: none;">Cancel</button>
+              </fieldset>
+
+              <div class="tool-stack">
+                <button class="tool-button" data-pulse-target="globals" onclick="onClickWriteGlobal()">Global</button>
+                <button class="tool-button" data-pulse-target="kits" onclick="saveCurrentKitToMD()">Kit</button>
+                <button class="tool-button" data-pulse-target="patterns" onclick="writePatternToMD()">Pattern</button>
+                <button class="tool-button" data-pulse-target="songs" onclick="saveCurrentSongToMD()">Song</button>
+                <button class="tool-button" onclick="openFirmwareUpdateModal()">Firmware</button>
+              </div>
+            </div>
+
+            <div class="tools-col-reset">
+              <h3>SLOTS</h3>
+              <fieldset class="slot-ops-fieldset">
+                <div class="slot-ops-header" role="group" aria-label="Slot clipboard actions">
+                  <button class="tool-button" data-pulse-scope="slotops" data-pulse-target="copy" onclick="onClickSlotsCopy()" type="button">Copy</button>
+                  <button class="tool-button" data-pulse-scope="slotops" data-pulse-target="paste" onclick="onClickSlotsPaste()" type="button">Paste</button>
+                  <button class="tool-button" data-pulse-scope="slotops" data-pulse-target="clear" onclick="onClickSlotsClear()" type="button">Clear</button>
+                </div>
+
+                <div class="tool-check-row" aria-label="Select slot categories">
+                  <label>G <input id="resetCheckG" type="checkbox"/></label>
+                  <label>K <input checked="" id="resetCheckK" type="checkbox"/></label>
+                  <label>P <input checked="" id="resetCheckP" type="checkbox"/></label>
+                  <label>S <input checked="" id="resetCheckS" type="checkbox"/></label>
+                </div>
+
+                <div class="slot-ops-status" id="slotOpsStatus" aria-live="polite">Clipboard: empty</div>
+              </fieldset>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- KIT PANEL -->
+      <section class="panel kit-panel" data-panel-id="kit" style="display:none;">
+        <div class="panel-header">KIT</div>
+        <div class="panel-content kit-editor kit-compact" data-kit-editor="">
+          <header class="kit-toolbar">
+            <div class="kit-meta">
+              <label class="kit-name">
+                <span class="kit-meta-label">Name</span>
+                <input id="kitNameInput" maxlength="10" type="text"/>
+              </label>
+              <div class="kit-number">
+                <span class="kit-meta-label">Kit</span>
+                <span class="kit-number-display" id="kitNumberDisplay"></span>
+              </div>
+            </div>
+            <div aria-label="Kit editor tabs" class="kit-tabbar" data-kit-tabs="" role="tablist">
+              <button aria-selected="true" class="kit-tab is-active" data-kit-tab="overview" role="tab" type="button">Overview</button>
+              <button aria-selected="false" class="kit-tab" data-kit-tab="synthesis" role="tab" type="button">Synthesis</button>
+              <button aria-selected="false" class="kit-tab" data-kit-tab="effects" role="tab" type="button">Effects</button>
+              <button aria-selected="false" class="kit-tab" data-kit-tab="routing" role="tab" type="button">Routing</button>
+              <button aria-selected="false" class="kit-tab" data-kit-tab="masterfx" role="tab" type="button">Master FX</button>
+            </div>
+          </header>
+
+          <div class="kit-tabpanels">
+            <section class="kit-tabpanel is-active" data-kit-tabpanel="overview" role="tabpanel">
+              <div class="kit-overview-grid">
+                <section class="kit-card kit-card--tracks">
+                  <header class="kit-card-header"><h3>Tracks</h3></header>
+                  <div class="kit-card-body kit-scroll">
+                    <div id="trackOverviewUI"></div>
+                  </div>
+                </section>
+              </div>
+            </section>
+
+            <section class="kit-tabpanel" data-kit-tabpanel="synthesis" role="tabpanel">
+              <section class="kit-card">
+                <header class="kit-card-header"><h3>Synthesis</h3></header>
+                <div class="kit-card-body kit-scroll"><div id="machineParamsUI"></div></div>
+              </section>
+            </section>
+
+            <section class="kit-tabpanel" data-kit-tabpanel="effects" role="tabpanel">
+              <section class="kit-card">
+                <header class="kit-card-header"><h3>Effects</h3></header>
+                <div class="kit-card-body kit-scroll"><div id="trackFxUI"></div></div>
+              </section>
+            </section>
+
+            <section class="kit-tabpanel" data-kit-tabpanel="routing" role="tabpanel">
+              <section class="kit-card">
+                <header class="kit-card-header"><h3>Routing</h3></header>
+                <div class="kit-card-body kit-scroll"><div id="routingUI"></div></div>
+              </section>
+            </section>
+
+            <section class="kit-tabpanel" data-kit-tabpanel="masterfx" role="tabpanel">
+              <section class="kit-card">
+                <header class="kit-card-header"><h3>Master FX</h3></header>
+                <div class="kit-card-body kit-scroll">
+                  <table class="mfxtable" id="masterFxTable"></table>
+                </div>
+              </section>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <!-- PATTERN PANEL -->
+      <section class="panel" data-panel-id="pattern" style="display:none;">
+        <div class="panel-header">PATTERN</div>
+        <div class="panel-content">
+          <div class="pattern-settings-card">
+            <div class="pattern-settings-grid pattern-settings-grid--top">
+              <div class="pattern-field">
+                <label>Pat #</label>
+                <span id="patNumber" class="pattern-number-display" data-help="#patNumber">A01</span>
+              </div>
+              <div class="pattern-field">
+                <label for="assignedKitNumber">Kit #</label>
+                <input id="assignedKitNumber" type="number" min="1" max="64" step="1" value="1"/>
+              </div>
+            </div>
+
+            <div class="pattern-settings-grid pattern-settings-grid--row2">
+              <div class="pattern-field pattern-field--length">
+                <label for="patLengthSlider">Length</label>
+                <div class="pattern-slider-row">
+                  <input id="patLengthSlider" max="64" min="2" oninput="updateLengthLabel()" type="range" value="16"/>
+                  <span class="pattern-value" id="patLengthLabel">16</span>
+                </div>
+              </div>
+
+              <div class="pattern-field">
+                <label for="patScaleSelect">Scale</label>
+                <select id="patScaleSelect"></select>
+              </div>
+
+              <div class="pattern-field">
+                <label for="patTempoMult">Tempo</label>
+                <select id="patTempoMult">
+                  <option value="0">1X</option>
+                  <option value="1">2X</option>
+                  <option value="2">3/4X</option>
+                  <option value="3">3/2X</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="pattern-settings-grid pattern-settings-grid--row3">
+              <div class="pattern-field">
+                <label for="patSwingSlider">Swing</label>
+                <div class="pattern-slider-row">
+                  <input id="patSwingSlider" max="80" min="50" oninput="updateSwingLabel()" type="range" value="50"/>
+                  <span class="pattern-value" id="patSwingLabel">50</span>
+                </div>
+              </div>
+
+              <div class="pattern-field">
+                <label for="accentSlider">Accent</label>
+                <div class="pattern-slider-row">
+                  <input id="accentSlider" max="15" min="0" oninput="updateAccentLabel()" type="range" value="0"/>
+                  <span class="pattern-value" id="accentLabel">0</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- REQUIRED: legacy Pattern render container -->
+          <div id="bitfieldsUI"></div>
+
+          <!-- Optional: legacy Locks scroller container -->
+          <details style="margin-top:0.75em;">
+            <summary>Locks / Parameter steps</summary>
+            <div class="locks-scroller" id="locksScroller" style="margin-top:0.5em;"></div>
+          </details>
+        </div>
+      </section>
+
+      <!-- SONG PANEL -->
+      <section class="panel" data-panel-id="song" style="display:none;">
+        <div class="panel-header">SONG</div>
+        <div class="panel-content">
+          <div class="song-editor-wrap">
+            <header aria-label="Song header" class="song-toolbar">
+              <label class="song-meta song-name">
+                <span class="song-meta-label">Name</span>
+                <input id="songNameInput" maxlength="16" type="text"/>
+              </label>
+              <div class="song-meta song-number">
+                <span class="song-meta-label">Song</span>
+                <span class="song-number-display" id="songNumberDisplay"></span>
+              </div>
+            </header>
+
+            <div aria-label="Song editor" class="song-grid song-grid--single">
+              <section aria-label="Song table" class="song-card song-card--table">
+                <div class="song-card-body">
+                  <table class="song-editor" id="songTable">
+                    <thead></thead>
+                    <tbody id="songRowsBody"></tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- GLOBAL PANEL -->
+      <section class="panel global-panel" data-panel-id="global" style="display:none;">
+        <div class="panel-header">GLOBAL</div>
+        <div class="panel-content">
+          <div class="global-editor-grid">
+
+            <!-- Settings (Basic + Advanced + Sync) -->
+            <section class="global-card global-card--settings">
+              <div class="global-settings-grid">
+                <div class="setting">
+                  <label>Global #:</label>
+                  <span class="global-number-display" id="globalNumberDisplay"></span>
+                </div>
+                <div class="setting">
+                  <label for="globalTempo">Tempo:</label>
+                  <input id="globalTempo" max="300" min="30" step="0.1" type="number" value="120"/>
+                </div>
+              </div>
+
+              <details class="global-details global-advanced" id="globalAdvanced" open="">
+                <summary>Advanced</summary>
+                <div class="details-body">
+                  <div class="global-advanced-grid">
+                    <div class="setting">
+                      <label for="globalMidiBaseSelect">MIDI Base Channel:</label>
+                      <select id="globalMidiBaseSelect">
+                        <option value="0">1–4</option>
+                        <option value="1">2–5</option>
+                        <option value="2">3–6</option>
+                        <option value="3">4–7</option>
+                        <option value="4">5–8</option>
+                        <option value="5">6–9</option>
+                        <option value="6">7–10</option>
+                        <option value="7">8–11</option>
+                        <option value="8">9–12</option>
+                        <option value="9">10–13</option>
+                        <option value="10">11–14</option>
+                        <option value="11">12–15</option>
+                        <option value="12">13–16</option>
+                        <option value="13">OFF (--)</option>
+                      </select>
+                    </div>
+
+                    <div class="setting">
+                      <label for="globalMechSettingsSelect">Mechanical Settings:</label>
+                      <select id="globalMechSettingsSelect">
+                        <option value="0">24 ppr</option>
+                        <option value="1">32 ppr</option>
+                      </select>
+                    </div>
+
+                    <div class="setting setting-inline">
+                      <input id="globalExtendedMode" type="checkbox"/>
+                      <label for="globalExtendedMode">Extended Mode</label>
+                    </div>
+
+                    <div class="setting setting-inline">
+                      <input id="globalLocalOn" type="checkbox"/>
+                      <label for="globalLocalOn">Local On</label>
+                    </div>
+
+                    <div class="setting">
+                      <label for="globalProgramChangeSelect">Program Change:</label>
+                      <select id="globalProgramChangeSelect">
+                        <option value="0">OFF</option>
+                        <option value="1">IN</option>
+                        <option value="2">OUT</option>
+                        <option value="3">IN+OUT</option>
+                      </select>
+                    </div>
+
+                    <div class="setting">
+                      <label for="globalPcChannelSelect">Program Change Channel:</label>
+                      <select id="globalPcChannelSelect">
+                        <option value="0">Base</option>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4">4</option>
+                        <option value="5">5</option>
+                        <option value="6">6</option>
+                        <option value="7">7</option>
+                        <option value="8">8</option>
+                        <option value="9">9</option>
+                        <option value="10">10</option>
+                        <option value="11">11</option>
+                        <option value="12">12</option>
+                        <option value="13">13</option>
+                        <option value="14">14</option>
+                        <option value="15">15</option>
+                        <option value="16">16</option>
+                      </select>
+                    </div>
+
+                  </div>
+                </div>
+              </details>
+
+              <fieldset class="global-sync-fieldset">
+                <legend>MIDI Sync Flags</legend>
+                <div class="global-sync-grid">
+                  <label><input id="globalClockIn" type="checkbox"/> Tempo In</label>
+                  <label><input id="globalTransportIn" type="checkbox"/> Ctrl In</label>
+                  <label><input id="globalClockOut" type="checkbox"/> Tempo Out</label>
+                  <label><input id="globalTransportOut" type="checkbox"/> Ctrl Out</label>
+                </div>
+              </fieldset>
+            </section>
+
+            <!-- Routing -->
+            <section class="global-card global-card--routing">
+              <h3>Routing</h3>
+              <div class="global-routing-grid" id="globalDrumRoutingUI"></div>
+            </section>
+
+            <!-- Trig Inputs -->
+            <section class="global-card global-card--trig">
+              <h3>Trig Inputs</h3>
+              <div class="global-trig-grid">
+                <fieldset class="global-trig-fieldset">
+                  <legend>Trig in A</legend>
+                  <div class="global-row">
+                    <label for="globalDrumLeft">Destination:</label>
+                    <select id="globalDrumLeft">
+                      <option value="0">1</option><option value="1">2</option><option value="2">3</option><option value="3">4</option>
+                      <option value="4">5</option><option value="5">6</option><option value="6">7</option><option value="7">8</option>
+                      <option value="8">9</option><option value="9">10</option><option value="10">11</option><option value="11">12</option>
+                      <option value="12">13</option><option value="13">14</option><option value="14">15</option><option value="15">16</option>
+                      <option value="16">OFF</option>
+                    </select>
+                  </div>
+                  <div class="global-range-row">
+                    <label for="globalGateLeft">Gate:</label>
+                    <input id="globalGateLeft" max="127" min="0" oninput="document.getElementById('globalGateLeftValue').textContent = this.value;" type="range" value="0"/>
+                    <span class="global-range-value" id="globalGateLeftValue">0</span>
+                  </div>
+                  <div class="global-range-row">
+                    <label for="globalSenseLeft">Sense:</label>
+                    <input id="globalSenseLeft" max="127" min="0" oninput="document.getElementById('globalSenseLeftValue').textContent = this.value;" type="range" value="0"/>
+                    <span class="global-range-value" id="globalSenseLeftValue">0</span>
+                  </div>
+                  <div class="global-range-row">
+                    <label for="globalMinLevelLeft">VMin:</label>
+                    <input id="globalMinLevelLeft" max="127" min="0" oninput="document.getElementById('globalMinLevelLeftValue').textContent = this.value;" type="range" value="0"/>
+                    <span class="global-range-value" id="globalMinLevelLeftValue">0</span>
+                  </div>
+                  <div class="global-range-row">
+                    <label for="globalMaxLevelLeft">VMax:</label>
+                    <input id="globalMaxLevelLeft" max="127" min="0" oninput="document.getElementById('globalMaxLevelLeftValue').textContent = this.value;" type="range" value="127"/>
+                    <span class="global-range-value" id="globalMaxLevelLeftValue">127</span>
+                  </div>
+                </fieldset>
+
+                <fieldset class="global-trig-fieldset">
+                  <legend>Trig in B</legend>
+                  <div class="global-row">
+                    <label for="globalDrumRight">Destination:</label>
+                    <select id="globalDrumRight">
+                      <option value="0">1</option><option value="1">2</option><option value="2">3</option><option value="3">4</option>
+                      <option value="4">5</option><option value="5">6</option><option value="6">7</option><option value="7">8</option>
+                      <option value="8">9</option><option value="9">10</option><option value="10">11</option><option value="11">12</option>
+                      <option value="12">13</option><option value="13">14</option><option value="14">15</option><option value="15">16</option>
+                      <option value="16">OFF</option>
+                    </select>
+                  </div>
+                  <div class="global-range-row">
+                    <label for="globalGateRight">Gate:</label>
+                    <input id="globalGateRight" max="127" min="0" oninput="document.getElementById('globalGateRightValue').textContent = this.value;" type="range" value="0"/>
+                    <span class="global-range-value" id="globalGateRightValue">0</span>
+                  </div>
+                  <div class="global-range-row">
+                    <label for="globalSenseRight">Sense:</label>
+                    <input id="globalSenseRight" max="127" min="0" oninput="document.getElementById('globalSenseRightValue').textContent = this.value;" type="range" value="0"/>
+                    <span class="global-range-value" id="globalSenseRightValue">0</span>
+                  </div>
+                  <div class="global-range-row">
+                    <label for="globalMinLevelRight">VMin:</label>
+                    <input id="globalMinLevelRight" max="127" min="0" oninput="document.getElementById('globalMinLevelRightValue').textContent = this.value;" type="range" value="0"/>
+                    <span class="global-range-value" id="globalMinLevelRightValue">0</span>
+                  </div>
+                  <div class="global-range-row">
+                    <label for="globalMaxLevelRight">VMax:</label>
+                    <input id="globalMaxLevelRight" max="127" min="0" oninput="document.getElementById('globalMaxLevelRightValue').textContent = this.value;" type="range" value="127"/>
+                    <span class="global-range-value" id="globalMaxLevelRightValue">127</span>
+                  </div>
+                </fieldset>
+              </div>
+            </section>
+
+            <!-- Keymap (collapsible) -->
+            <details class="global-card global-card--keymap global-details" id="globalKeymapDetails">
+              <summary id="globalKeymapTitle">Keymap</summary>
+              <div class="details-body global-keymap-body" id="globalKeymapSection">
+                <div class="global-keymap-controls">
+                  <div class="field-group">
+                    <label for="globalTrigModeSelect">Trigger Mode:</label>
+                    <select id="globalTrigModeSelect">
+                      <option value="0">GATE</option>
+                      <option value="1">START</option>
+                      <option value="2">QUE</option>
+                    </select>
+                  </div>
+                  <div class="field-group global-keymap-filter">
+                    <label for="globalKeymapFilter">Filter:</label>
+                    <input autocomplete="off" id="globalKeymapFilter" placeholder="Track 1, A01, TrigStart…" type="search"/>
+                    <button class="tool-button tool-button--small" id="globalKeymapClearFilter" type="button">Clear</button>
+                  </div>
+                </div>
+                <div class="global-keymap-table-wrap">
+                  <table class="global-keymap-table" id="globalKeymapTable">
+                    <thead>
+                      <tr><th>Function</th><th>MIDI Note</th></tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+            </details>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- UW PANEL -->
+      <section class="panel" data-panel-id="uw" style="display:none;">
+        <div class="panel-header">UW</div>
+        <div class="panel-content">
+          <div id="uwUnavailable" style="display:none;">
+            <p>UW Unavailable</p>
+          </div>
+
+          <fieldset id="uwFieldset">
+            <legend>Sample Tools</legend>
+            <div id="uwPanel" style="display:none;">
+              <div id="uwTools" style="display: grid; grid-template-columns: repeat(6, auto); gap: 1em;">
+                <!-- Column 1: System color -->
+                <div class="tools-col-system">
+                  <button onclick="openImportDataModal()">Import Bank</button>
+                  <button onclick="exportAllSlots()">Export Bank</button>
+                  <button onclick="openImportAudioModal()">Import Audio</button>
+                </div>
+
+                <div class="tools-col-midi">
+                  <button onclick="startBulkReceiveAll()">Receive All</button>
+                  <button onclick="receiveActiveSlot()">Receive Active Slot</button>
+                  <button onclick="requestSlotList()">Request Slot List to Receive</button>
+                  <label style="margin-left:1em;">
+                    <input id="openLoopRecvGlobal" type="checkbox"/>
+                    Open-Loop
+                  </label>
+                </div>
+
+                <div class="tools-col-midi">
+                  <button onclick="sendAllSamples()">Send All</button>
+                  <button onclick="sendActiveSample()">Send Active Slot</button>
+                  <label>
+                    <input id="openLoopSendGlobal" type="checkbox"/>
+                    Open-Loop
+                  </label>
+                </div>
+
+                <div class="tools-col-reset">
+                  <button onclick="clearAllSlots()">Clear All</button>
+                  <button onclick="clearSlot()">Clear Active Slot</button>
+                </div>
+
+                <div class="tools-col-reset">
+                  <button onclick="autoRepitchAll()">Auto Repitch</button>
+                  <button onclick="randomiseAllSlots()">Randomise All Slots Rate+Pitch</button>
+                </div>
+
+                <div class="tools-col-reset">
+                  <span id="uwMemoryLabel">Memory: Used 0 / Free ???</span>
+                  <button class="bulkCancelBtn" id="bulkCancelBtn" onclick="cancelUwBulkOperation()" style="display:none">Cancel</button>
+                </div>
+
+                <br/>
+              </div>
+            </div>
+          </fieldset>
+
+          <br/>
+          <input accept=".wav,.syx,.aiff,.aif,.mp3,.flac,.ogg" id="uwFileInput" multiple="" onchange="onFilesSelected(this.files)" style="display:none" type="file"/>
+          <ul id="uwSlotsList"></ul>
+        </div>
+      </section>
+
+      <!-- LAB PANEL -->
+      <section class="panel" data-panel-id="lab" style="display:none;">
+        <div class="panel-header">LAB</div>
+        <div class="panel-content">
+          <div id="labPanelContent" style="display: block;"></div>
+        </div>
+      </section>
+
+      <!-- SKEWCLID PANEL -->
+      <section class="panel panel--flex tool-panel" data-panel-id="skewclid" data-panel-flex="true" style="display:none;">
+        <div class="panel-header">SKEWCLID</div>
+        <div class="panel-content tool-panel-content">
+          <div class="tool-embed-host" id="skewclidMount">
+            <div id="euclidOverlay" data-embedded="true"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- NODETRIX PANEL -->
+      <section class="panel panel--flex tool-panel" data-panel-id="nodetrix" data-panel-flex="true" style="display:none;">
+        <div class="panel-header">NODETRIX</div>
+        <div class="panel-content tool-panel-content">
+          <div class="tool-embed-host" id="nodetrixMount"></div>
+        </div>
+      </section>
+
+      <!-- HELP PANEL -->
+      <section class="panel panel--flex tool-panel" data-panel-id="help" data-panel-flex="true" style="display:none;">
+        <div class="panel-header">ABOUT</div>
+        <div class="panel-content tool-panel-content">
+          <div class="help-scroll">
+            <div id="helpMount"></div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- System / MIDI modal -->
+<div aria-label="System and MIDI settings" aria-modal="true" class="modal" id="systemMidiModal" role="dialog">
+  <div class="modal-content system-midi-modal">
+    <div class="modal-titlebar">
+      <div class="modal-title">System / MIDI</div>
+      <button aria-label="Close" class="icon-btn" id="systemMidiCloseBtnX" type="button">×</button>
+    </div>
+
+    <div class="system-midi-grid">
+      <div class="system-card">
+        <h3>SYSTEM</h3>
+        <div class="form-rows">
+          <div class="form-row">
+            <label for="mdModelSelect">Model</label>
+            <select id="mdModelSelect" onchange="onChangeMdModel()">
+              <option selected="" value="MKII">MKII</option>
+              <option value="MKI">MKI</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <label for="osVersionSelect">OS</label>
+            <select id="osVersionSelect">
+              <option selected="" value="X">X</option>
+              <option value="1.63">1.63</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <label for="uwToggleCheckbox">UW</label>
+            <label class="checkbox-row">
+              <input checked="" id="uwToggleCheckbox" onchange="onChangeUWCheckbox()" type="checkbox"/>
+              <span>Enabled</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="section-divider"></div>
+
+        <div class="button-grid">
+          <button class="tool-button" id="importModalBtn" onclick="showImportModal()">Import</button>
+          <button class="tool-button" id="exportModalBtn" onclick="showExportModal()">Export</button>
+          <button class="tool-button" onclick="onClickResetMDDT()">Reset</button>
+        </div>
+
+        <p class="hint">Import/Export saves all Globals, Kits, Patterns, and Songs as JSON.</p>
+      </div>
+
+      <div class="midi-card">
+        <h3>MIDI</h3>
+        <div class="form-rows">
+          <div class="form-row">
+            <label>Status</label>
+            <div class="status-pill warn" id="midiStatusText" title="Click Init / Refresh MIDI to detect devices">Not initialized</div>
+          </div>
+
+          <div class="form-row">
+            <label for="midiInSelect">In</label>
+            <select id="midiInSelect"></select>
+          </div>
+
+          <div class="form-row">
+            <label for="midiOutSelect">Out</label>
+            <select id="midiOutSelect"></select>
+          </div>
+
+          <div class="form-row">
+            <label for="bulkDelayInput">Bulk delay (ms)</label>
+            <input id="bulkDelayInput" max="500" min="0" step="5" type="number" value="0"/>
+          </div>
+
+          <div class="form-row">
+            <label>Turbo</label>
+            <div class="inline-controls">
+              <button class="tool-button" id="turboButton" onclick="onClickTurbo()">Enable</button>
+              <span class="mono" id="turboSpeedLabel">x1.00</span>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <label for="ccLinkCheckbox">CC Link</label>
+            <input id="ccLinkCheckbox" type="checkbox"/>
+          </div>
+
+          <div class="form-row form-row-actions">
+            <span></span>
+            <button class="tool-button" onclick="initWebMIDI()">Init / Refresh MIDI</button>
+          </div>
+        </div>
+
+        <p class="hint">Increase Bulk delay if you see dropped dumps during Receive / Send Everything.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Import/Export modals -->
+<div class="modal" id="exportModal">
+  <div class="modal-content">
+    <h2>Export Options</h2>
+    <label for="exportFilenameInput">File Name:</label>
+    <input id="exportFilenameInput" type="text" value="MDDTExport.mddt"/>
+
+    <div>
+      <label><input checked="" id="expGlobalsCat" type="checkbox"/> Export Globals</label>
+      <button onclick="selectAllSlotsWithin('#exportGlobalsSlots', true)" type="button">All</button>
+      <button onclick="selectAllSlotsWithin('#exportGlobalsSlots', false)" type="button">None</button>
+    </div>
+    <div id="exportGlobalsSlots" style="margin-bottom:1em;">
+    </div>
+
+    <div>
+      <label><input checked="" id="expKitsCat" type="checkbox"/> Export Kits</label>
+      <button onclick="selectAllSlotsWithin('#exportKitsSlots', true)" type="button">All</button>
+      <button onclick="selectAllSlotsWithin('#exportKitsSlots', false)" type="button">None</button>
+    </div>
+    <div id="exportKitsSlots" style="margin-bottom:1em;">
+    </div>
+
+    <div>
+      <label><input checked="" id="expPatternsCat" type="checkbox"/> Export Patterns</label>
+      <button onclick="selectAllSlotsWithin('#exportPatternsSlots', true)" type="button">All</button>
+      <button onclick="selectAllSlotsWithin('#exportPatternsSlots', false)" type="button">None</button>
+    </div>
+    <div id="exportPatternsSlots" style="margin-bottom:1em;">
+    </div>
+
+    <div>
+      <label><input checked="" id="expSongsCat" type="checkbox"/> Export Songs</label>
+      <button onclick="selectAllSlotsWithin('#exportSongsSlots', true)" type="button">All</button>
+      <button onclick="selectAllSlotsWithin('#exportSongsSlots', false)" type="button">None</button>
+    </div>
+    <div id="exportSongsSlots" style="margin-bottom:1em;">
+    </div>
+
+    <div>
+      <label><input checked="" id="expSamplesCat" type="checkbox"/> Export Samples</label>
+      <button onclick="selectAllSlotsWithin('#exportSamplesSlots', true)" type="button">All</button>
+      <button onclick="selectAllSlotsWithin('#exportSamplesSlots', false)" type="button">None</button>
+    </div>
+    <div id="exportSamplesSlots" style="margin-bottom:1em;"></div>
+
+    <button onclick="onExportOk()">OK</button>
+    <button onclick="onExportCancel()">Cancel</button>
+  </div>
+</div>
+
+<div class="modal" id="importModal">
+  <div class="modal-content">
+    <h2>Import Options</h2>
+    <input accept=".json,.mddt,.syx" id="importFileInput" onchange="onImportFileChosen(this.files[0])" style="width:100%;" type="file"/>
+    <div id="importDetails" style="margin:0.5em 0; font-size:0.9em;"></div>
+
+    <div id="importGlobalsSection" style="display:none;">
+      <label><input id="impGlobals" type="checkbox"/> Import Global Slots</label>
+      <button onclick="selectAllSlotsWithin('#importGlobalsSlotCheckboxes', true)" type="button">All</button>
+      <button onclick="selectAllSlotsWithin('#importGlobalsSlotCheckboxes', false)" type="button">None</button>
+      <div id="importGlobalsSlotCheckboxes" style="margin-bottom:1em;"></div>
+    </div>
+
+    <hr/>
+
+    <div id="importKitsSection" style="display:none;">
+      <label><input id="impKits" type="checkbox"/> Import Kit Slots</label>
+      <button onclick="selectAllSlotsWithin('#importKitsSlotCheckboxes', true)" type="button">All</button>
+      <button onclick="selectAllSlotsWithin('#importKitsSlotCheckboxes', false)" type="button">None</button>
+      <div id="importKitsSlotCheckboxes" style="margin-bottom:1em;"></div>
+    </div>
+
+    <hr/>
+
+    <div id="importPatternsSection" style="display:none;">
+      <label><input id="impPatterns" type="checkbox"/> Import Pattern Slots</label>
+      <button onclick="selectAllSlotsWithin('#importPatternsSlotCheckboxes', true)" type="button">All</button>
+      <button onclick="selectAllSlotsWithin('#importPatternsSlotCheckboxes', false)" type="button">None</button>
+      <div id="importPatternsSlotCheckboxes" style="margin-bottom:1em;"></div>
+    </div>
+
+    <hr/>
+
+    <div id="importSongsSection" style="display:none;">
+      <label><input id="impSongs" type="checkbox"/> Import Song Slots</label>
+      <button onclick="selectAllSlotsWithin('#importSongsSlotCheckboxes', true)" type="button">All</button>
+      <button onclick="selectAllSlotsWithin('#importSongsSlotCheckboxes', false)" type="button">None</button>
+      <div id="importSongsSlotCheckboxes" style="margin-bottom:1em;"></div>
+    </div>
+
+    <hr/>
+
+    <div id="importSamplesSection" style="display:none;">
+      <label><input id="impSamples" type="checkbox"/> Import Sample Slots</label>
+      <button onclick="selectAllSlotsWithin('#importSamplesSlotCheckboxes', true)" type="button">All</button>
+      <button onclick="selectAllSlotsWithin('#importSamplesSlotCheckboxes', false)" type="button">None</button>
+      <div id="importSamplesSlotCheckboxes" style="margin-bottom:1em;"></div>
+    </div>
+
+    <br/>
+    <button onclick="onImportOk()">OK</button>
+    <button onclick="onImportCancel()">Cancel</button>
+  </div>
+</div>
+
+<div class="modal" id="importAudioModal">
+  <div class="modal-content">
+    <div class="modal-header">Import Audio</div>
+    <p>Select your audio files below, then <strong>drag</strong> them to slot positions.</p>
+    <input accept=".wav,.syx,.aiff,.aif,.mp3,.flac,.ogg" id="modalFileInput" multiple="" type="file"/>
+
+    <div style="margin-top:1em; display: grid; grid-template-columns: repeat(4, 1fr); gap: 1em;">
+      <div><div class="import-file-list" id="importFileList1" ondragover="importDragOver(event)" ondrop="importFileDrop(event)"></div></div>
+      <div><div class="import-file-list" id="importFileList2" ondragover="importDragOver(event)" ondrop="importFileDrop(event)"></div></div>
+      <div><div class="import-slot-list" id="importSlotList1" ondragover="importDragOver(event)" ondrop="importSlotDrop(event)"></div></div>
+      <div><div class="import-slot-list" id="importSlotList2" ondragover="importDragOver(event)" ondrop="importSlotDrop(event)"></div></div>
+    </div>
+
+    <button onclick="confirmImportAudio()">Import</button>
+    <button onclick="closeImportAudioModal()">Cancel</button>
+  </div>
+</div>
+
+<div class="modal" id="importDataModal">
+  <div class="modal-content">
+    <div class="modal-header">Import Slot Data</div>
+    <p>Select a previously exported MDDT file to restore slots.</p>
+    <input id="importDataFileInput" type="file"/>
+    <br/>
+    <button onclick="confirmImportData()">Confirm</button>
+    <button onclick="closeImportDataModal()">Cancel</button>
+  </div>
+</div>
+
+<div id="processingPopup">
+  <div class="popup-overlay">
+    <div class="popup-content">
+      <div class="spinner"></div>
+      <p>Processing...</p>
+    </div>
+  </div>
+</div>
+
+<!-- Scripts -->
+
+<!-- Local JS -->
+<script src="js/mddt-state.js"></script>
+<script src="js/mddt-constants.js"></script>
+<script src="js/mddt-midi.js"></script>
+<script src="js/mddt-helpers.js"></script>
+<script src="js/mddt-ui.js"></script>
+<script src="js/mddt-kit-sysex.js"></script>
+<script src="js/mddt-pattern-sysex.js"></script>
+<script src="js/mddt-global-sysex.js"></script>
+<script src="js/mddt-main.js"></script>
+<script src="js/mddt-random.js"></script>
+<script src="js/mddt-bulk.js"></script>
+<script src="js/mddt-songmode.js"></script>
+<script src="js/mddt-sample-manager.js"></script>
+<script src="js/mddt-import-sysex.js"></script>
+
+<!-- Vendor JS (CDN) -->
+<script src="https://cdn.jsdelivr.net/npm/nouislider@15.7.1/dist/nouislider.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/wnumb@1.2.0/wNumb.min.js"></script>
+
+<!-- Local JS continued -->
+<script src="js/mddt-lab.js"></script>
+<script src="js/mddt-lab-adv-mod.js"></script>
+<script src="js/mddt-lab-swingloom.js"></script>
+<script src="js/mddt-help.js"></script>
+<script src="js/mddt-skewclid.js"></script>
+<script src="js/mddt-nodetrix.js"></script>
+
+<!-- vNext UI glue -->
+<script src="js/ui-bus.js"></script>
+<script src="js/ui-slot-map.js"></script>
+<script src="js/slot-strip.js"></script>
+<script src="js/ui-shell.js"></script>
+<script src="js/integration-shim.js"></script>
+
+<!-- INFO panel hover help -->
+<script src="js/mddt-hover-help-registry.js"></script>
+<script src="js/mddt-hover-help.js"></script>
+
+</body>
+</html>
