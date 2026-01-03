@@ -1,4 +1,4 @@
-# MDDT (Web)
+# MDDT V2.0
 
 Browser-based tool for working with **Elektron Machinedrum SPS-1 (MK1 / MK2 / UW) SysEx** over **WebMIDI**.
 
