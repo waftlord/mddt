@@ -2,11 +2,7 @@
 
 Browser-based tool for working with **Elektron Machinedrum SPS-1 (MK1 / MK2 / UW) SysEx** over **WebMIDI**.
 
-## Hosted here:
-
-```text
-wftlrd.uk/mddt/
-```
+[wftlrd.uk/mddt](https://wftlrd.uk/mddt/)
 
 ## Safety
 
