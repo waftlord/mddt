@@ -1878,12 +1878,15 @@ window.writeSongSlot = function writeSongSlot(slotIndex, songObj, opts = { sendT
     const scopeEl = opts && opts.scopeEl ? opts.scopeEl : document;
     const ui = {
       ranges: {
-        kit: host.ui && host.ui.getSlotRange ? host.ui.getSlotRange(scopeEl, "kit") : null,
-        pattern: host.ui && host.ui.getSlotRange ? host.ui.getSlotRange(scopeEl, "pattern") : null,
-        song: host.ui && host.ui.getSlotRange ? host.ui.getSlotRange(scopeEl, "song") : null,
-        global: host.ui && host.ui.getSlotRange ? host.ui.getSlotRange(scopeEl, "global") : null
+        kit: host.ui && host.ui.getSlotRange ? host.ui.getSlotRange("kit", { scope: scopeEl }) : null,
+        pattern: host.ui && host.ui.getSlotRange ? host.ui.getSlotRange("pattern", { scope: scopeEl }) : null,
+        song: host.ui && host.ui.getSlotRange ? host.ui.getSlotRange("song", { scope: scopeEl }) : null,
+        global: host.ui && host.ui.getSlotRange ? host.ui.getSlotRange("global", { scope: scopeEl }) : null
       },
-      trackRange: host.ui && host.ui.getTrackRange ? host.ui.getTrackRange(scopeEl) : null
+      trackRanges: {
+        kit: host.ui && host.ui.getTrackRange ? host.ui.getTrackRange("kit", { scope: scopeEl }) : null,
+        pattern: host.ui && host.ui.getTrackRange ? host.ui.getTrackRange("pattern", { scope: scopeEl }) : null
+      }
     };
 
     const notes = [
@@ -1899,6 +1902,151 @@ window.writeSongSlot = function writeSongSlot(slotIndex, songObj, opts = { sendT
   host.log   = (...args) => console.log('[MDDT Lab]', ...args);
   host.warn  = (...args) => console.warn('[MDDT Lab]', ...args);
   host.error = (...args) => console.error('[MDDT Lab]', ...args);
+
+  // ───────────────────────────────────────────────────────────
+  // MIDI helper for Lab modules (wrapper around the app-selected ports)
+  // ───────────────────────────────────────────────────────────
+  host.midi = host.midi || {};
+
+  Object.defineProperty(host.midi, "in", {
+    configurable: true,
+    enumerable: true,
+    get: () => window.selectedMidiIn || null
+  });
+
+  Object.defineProperty(host.midi, "out", {
+    configurable: true,
+    enumerable: true,
+    get: () => window.selectedMidiOut || null
+  });
+
+  // Send raw MIDI bytes (Note On/Off, CC, etc.)
+  // If timestampMs is provided, uses MIDIOutput.send(data, timestampMs).
+  // Returns true if the message was sent.
+  host.midi.send = function send(data, timestampMs) {
+    const out = window.selectedMidiOut;
+    if (!out || typeof out.send !== "function") return false;
+
+    const bytes = (data instanceof Uint8Array) ? data : new Uint8Array(data);
+
+    try {
+      if (typeof timestampMs === "number" && Number.isFinite(timestampMs)) out.send(bytes, timestampMs);
+      else out.send(bytes);
+      return true;
+    } catch (e) {
+      console.warn("[host.midi.send] failed:", e);
+      return false;
+    }
+  };
+
+  // Subscribe to incoming MIDI messages from the selected input.
+  // Returns an unsubscribe function.
+  host.midi.onMessage = function onMessage(handler) {
+    const input = window.selectedMidiIn;
+    if (!input || !handler) return () => {};
+
+    const fn = (ev) => { try { handler(ev); } catch (e) { console.warn("[host.midi.onMessage] handler error:", e); } };
+
+    try {
+      input.addEventListener("midimessage", fn);
+      return () => { try { input.removeEventListener("midimessage", fn); } catch (_) {} };
+    } catch (_) {
+      const prev = input.onmidimessage;
+      input.onmidimessage = fn;
+      return () => { try { input.onmidimessage = prev || null; } catch (_) {} };
+    }
+  };
+
+  // ───────────────────────────────────────────────────────────
+  // Tone.js helpers for Lab modules (lazy loader + user-gesture start)
+  // ───────────────────────────────────────────────────────────
+  host.audio = host.audio || {};
+
+  const TONE_VERSION_PIN = "15.1.22"; // bump after testing
+  const TONE_URLS = [
+    `https://cdn.jsdelivr.net/npm/tone@${TONE_VERSION_PIN}/build/Tone.js`,
+    `https://unpkg.com/tone@${TONE_VERSION_PIN}/build/Tone.js`,
+    "https://cdn.jsdelivr.net/npm/tone@latest/build/Tone.js"
+  ];
+
+  let _toneLoadPromise = null;
+  let _toneStarted = false;
+
+  function _loadScriptOnce(src) {
+    return new Promise((resolve, reject) => {
+      const existing = document.querySelector(`script[src="${src}"]`);
+      if (existing) {
+        if (existing.dataset && existing.dataset.loaded === "true") return resolve();
+        existing.addEventListener("load", resolve, { once: true });
+        existing.addEventListener("error", () => reject(new Error(`Failed to load ${src}`)), { once: true });
+        return;
+      }
+
+      const s = document.createElement("script");
+      s.src = src;
+      s.async = true;
+      s.crossOrigin = "anonymous";
+      s.addEventListener("load", () => {
+        try { s.dataset.loaded = "true"; } catch (_) {}
+        resolve();
+      }, { once: true });
+      s.addEventListener("error", () => reject(new Error(`Failed to load ${src}`)), { once: true });
+      document.head.appendChild(s);
+    });
+  }
+
+  function _validateTone() {
+    const T = window.Tone;
+    if (!T) throw new Error("Tone missing");
+    if (!T.Transport) throw new Error("Tone.Transport missing");
+    if (typeof T.start !== "function") throw new Error("Tone.start missing");
+    if (typeof T.now !== "function") throw new Error("Tone.now missing");
+  }
+
+  // Loads Tone.js (lazy). Safe to call multiple times.
+  host.audio.ensureToneLoaded = async function ensureToneLoaded() {
+    if (window.Tone) return window.Tone;
+    if (_toneLoadPromise) return _toneLoadPromise;
+
+    _toneLoadPromise = (async () => {
+      let lastErr = null;
+      for (const url of TONE_URLS) {
+        try {
+          await _loadScriptOnce(url);
+          _validateTone();
+          return window.Tone;
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      _toneLoadPromise = null;
+      throw lastErr || new Error("Failed to load Tone.js");
+    })();
+
+    return _toneLoadPromise;
+  };
+
+  // Calls ensureToneLoaded(), then starts/resumes the audio context.
+  // MUST be called from a user gesture (button click) in most browsers.
+  host.audio.ensureToneStarted = async function ensureToneStarted() {
+    const Tone = await host.audio.ensureToneLoaded();
+
+    if (!_toneStarted) {
+      await Tone.start();
+      _toneStarted = true;
+    } else {
+      try { await Tone.context?.resume?.(); } catch (_) {}
+    }
+    return Tone;
+  };
+
+  // Convert a Tone.js scheduled time (seconds) to a WebMIDI timestamp (ms)
+  // suitable for MIDIOutput.send(data, timestampMs).
+  host.audio.toneTimeToMidiMs = function toneTimeToMidiMs(toneTimeSeconds) {
+    const Tone = window.Tone;
+    if (!Tone || typeof Tone.now !== "function") return performance.now();
+    return (toneTimeSeconds - Tone.now()) * 1000 + performance.now();
+  };
 
   // Also mirror a few common entry points directly on MDDT for convenience/compat.
   window.MDDT.commitKitSlot     = window.commitKitSlot;

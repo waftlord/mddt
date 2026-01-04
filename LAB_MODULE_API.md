@@ -1,658 +1,907 @@
-# MDDT Lab Module API Guide (Host API v3)
+# MDDT Lab Module API Guide
 
-This guide is intended to be **self-contained**: a module author (human or LLM) should be able to create Lab modules.
+**Audience:** humans and LLMs generating Lab modules.  
+**API:** Host API v3 (`host.apiVersion === 3`)
 
-> **Runtime**: Modules run in the browser, in the same page as MDDT.  
-> **Primary API**: `window.MDDT.registerLabModule(manifest, factoryFn)` and `window.MDDT.host`.
+This is the single, up-to-date contract for writing Lab modules for MDDT. It intentionally documents **only the current supported API** (no fallbacks).
 
 ---
 
-## 1) Quick start
+## 0) Non-negotiable rules
+
+These rules exist because of how the Lab host loads modules.
+
+1) `mount()` is **synchronous**
+- The host does **not** `await mount()`.
+- Do **not** declare `async mount()`.
+- Do async work only inside event handlers (e.g., a Start button), with `try/catch`.
+
+2) There is **no unmount**
+- Once your tab is opened and mounted, your module stays alive until page reload.
+- You must provide **Start / Stop** (or equivalent) and clean up everything you start.
+
+3) Slot libraries are **live**
+- `host.getRefs()` returns live internal objects.
+- Never mutate them directly. Always `host.clone()` → edit → `commit*Slot()` / `write*Slot()`.
+
+4) MIDI + audio must be **opt-in**
+- Don’t send MIDI or start audio automatically on mount.
+- Only start Tone/audio from a user gesture.
+
+---
+
+## 1) Quick start module (copy/paste)
 
 ```js
-// my-module.js
-(function () {
+(() => {
   "use strict";
 
-  const manifest = {
-    id: "my.module.id",
-    name: "My Module",
-    version: "0.1.0",
-    author: "You",
-    description: "Example module showing the Lab API.",
-    category: "Utility"
-  };
+  MDDT.registerLabModule({
+    id: "example-minimal",
+    title: "Example Minimal",
 
-  window.MDDT.registerLabModule(manifest, function factory(host) {
-    // Called once when user opens the module panel.
-    // Return { mount, unmount }.
+    mount(el, host) {
+      el.innerHTML = "";
+      el.classList.add("lab-module-inner");
 
-    let root;
+      const h = document.createElement("h3");
+      h.textContent = "Example Minimal";
+      el.appendChild(h);
 
-    function mount(containerEl) {
-      root = document.createElement("div");
-      root.className = "lab-root";
-
-      // Example: range selector (kits)
-      const range = host.ui.controls.slotRangeRow({
-        id: host.ui.controls.uniqueId("kitRange"),
-        label: "Kit slots",
-        type: "kit",
-        defaultStart: 0,
-        defaultEnd: 63
-      });
-
-      // Example: action button
-      const btn = host.ui.controls.button({
-        label: "Randomize kit names (local)",
-        onClick: () => {
-          const refs = host.getRefs();
-          const startEnd = host.ui.getSlotRange(root, "kit") || { start: 0, end: 63 };
-
-          for (let i = startEnd.start; i <= startEnd.end; i++) {
-            const kit = refs.kits[i];
-            if (!kit) continue;
-            const k = host.clone(kit);
-            k.kitName = `Kit ${String(i + 1).padStart(2, "0")}`;
-            host.commitKitSlot(i, k, { silent: true });
-          }
-
-          host.ui.refreshSlots({ kits: true });
-          host.ui.pulse(btn);
-        }
-      });
-
-      root.appendChild(range);
-      root.appendChild(btn);
-
-      containerEl.appendChild(root);
+      const p = document.createElement("p");
+      p.textContent = `Host API v${host.apiVersion}`;
+      el.appendChild(p);
     }
-
-    function unmount() {
-      if (root && root.parentNode) root.parentNode.removeChild(root);
-      root = null;
-    }
-
-    return { mount, unmount };
   });
 })();
 ```
 
-Place your JS file so it loads in the page (for development, add a `<script>` tag; for production, follow your existing build/loader approach).
-
 ---
 
-## 2) Core concepts
+## 2) Registering a module
 
-### Slots and libraries
-
-MDDT maintains in-memory “libraries” (arrays) for each data type:
-
-- **Globals**: 8 slots (`globals[0..7]`)
-- **Kits**: 64 slots (`kits[0..63]`)
-- **Patterns**: 128 slots (`patternSlots[0..127]`)
-- **Songs**: 32 slots (`songs[0..31]`)
-
-Everything in the Lab API uses **0-based indices**.
-
-### Local-first
-
-All `write*` / hardware-send actions default to **local only**:
-
-- `sendToMD` defaults to `false` on the host.
-- Use `sendToMD: true` only when you are sure you want to transmit SysEx to the connected Machinedrum.
-- “Unsafe” writers are also exposed (see below).
-
----
-
-## 3) Registration API
-
-### `window.MDDT.registerLabModule(manifest, factoryFn)`
-
-- `manifest` describes the module (id/name/version/category).
-- `factoryFn(host)` is called when the module is opened.
-- `factoryFn` must return:
+### `MDDT.registerLabModule(def)`
 
 ```ts
-type LabModuleInstance = {
-  mount(containerEl: HTMLElement): void;
-  unmount(): void;
+type LabModuleDef = {
+  id: string;                   // required, unique, stable
+  title?: string;               // tab label (defaults to id)
+  order?: number;               // optional sort key (lower = earlier)
+  mount: (el: HTMLElement, host: HostAPI) => void; // required, synchronous
 };
 ```
 
-### Manifest fields
+**Notes**
+- `id` must be unique across all modules (bundled + imported).
+- The host calls `mount(el, host)` once, the first time the user opens your tab.
+
+---
+
+## 3) Host API reference
+
+The host object is passed as `mount(el, host)` and is also available at `window.MDDT.host`.
+
+### 3.1 Type overview
 
 ```ts
-type LabModuleManifest = {
-  id: string;           // unique; namespace-like recommended
-  name: string;         // shown in UI
-  version?: string;
-  author?: string;
-  description?: string;
-  category?: string;    // used for grouping/filtering
+type CommitOpts = { silent?: boolean };
+type WriteOpts = { silent?: boolean; sendToMD?: boolean };
+
+type HostAPI = {
+  apiVersion: 3;
+
+  // cloning + logging
+  clone<T>(obj: T): T;
+  log(...args: any[]): void;
+  warn(...args: any[]): void;
+  error(...args: any[]): void;
+
+  // environment + selection
+  getEnv(): Env;
+  getSelected(): Selected;
+
+  // live data refs (do not mutate)
+  getRefs(): Refs;
+
+  // local-only commits (UI update, no SysEx)
+  commitKitSlot(i: number, kit: KitObj | null, opts?: CommitOpts): KitObj | null;
+  commitPatternSlot(i: number, pat: PatternObj | null, opts?: CommitOpts): PatternObj | null;
+  commitSongSlot(i: number, song: SongObj | null, opts?: CommitOpts): SongObj | null;
+  commitGlobalSlot(i: number, glb: GlobalObj | null, opts?: CommitOpts): GlobalObj | null;
+
+  // commit + optional SysEx send (defaults to local-only)
+  writeKitSlot(i: number, kit: KitObj | null, opts?: WriteOpts): void;
+  writePatternSlot(i: number, pat: PatternObj | null, opts?: WriteOpts): void;
+  writeSongSlot(i: number, song: SongObj | null, opts?: WriteOpts): void;
+  writeGlobalSlot(i: number, glb: GlobalObj | null, opts?: WriteOpts): void;
+
+  // label helpers (may be null in minimal builds)
+  labels: {
+    patternIndexToLabel: ((i: number) => string) | null;
+    patternLabelToIndex: ((s: string) => number) | null;
+  };
+
+  machines: MachineHelpers;
+  params: ParamHelpers;
+  ui: UIHelpers;
+  pattern: PatternHelpers;
+
+  // tooling snapshot
+  getKnowledge(opts?: { scopeEl?: HTMLElement | Document }): any;
+
+  // MIDI + audio
+  midi: MidiAPI;
+  audio: AudioAPI;
 };
 ```
 
 ---
 
-## 4) Host API overview
+## 4) Reading data safely
 
-The host object is passed to your factory function:
+### 4.1 `host.getRefs()`
 
-```js
-window.MDDT.registerLabModule(manifest, (host) => { ... });
+Returns live internal slot libraries:
+
+```ts
+type Refs = {
+  globals: (GlobalObj | null)[]; // length 8
+
+  // kits are wrapped
+  kits: ({ data: KitObj; colorIndex: number } | null)[]; // length 64
+
+  // patterns are wrapped
+  patterns: ({ kit: any; pattern: PatternObj; kitColorIndex: number } | null)[]; // length 128
+
+  songs: (SongObj | null)[]; // length 32
+};
 ```
 
-At runtime, it is also available as `window.MDDT.host`.
+**Hard rule:** never mutate the objects you get from these arrays.
 
-### Versioning
-
-- `host.apiVersion` → `3` (this guide documents v3)
-
-Always gate features if you plan to support multiple versions:
+✅ Correct:
 
 ```js
-if ((host.apiVersion|0) < 3) {
-  host.warn("This module requires Host API v3+");
-  return { mount(){}, unmount(){} };
+const refs = host.getRefs();
+const wrap = refs.kits[0];
+if (!wrap) return;
+
+const kit = host.clone(wrap.data);
+kit.kitName = "My Kit";
+host.commitKitSlot(0, kit);
+```
+
+❌ Incorrect (mutates live state):
+
+```js
+host.getRefs().kits[0].data.kitName = "Oops";
+```
+
+### 4.2 `host.clone(obj)`
+
+Use `host.clone()` before editing:
+- preserves typed arrays / ArrayBuffers when needed
+- avoids accidental shared mutations
+
+---
+
+## 5) Writing data (commit vs write)
+
+### 5.1 Commit: local library + UI only
+
+- `host.commitKitSlot(i, kitOrNull, opts?)`
+- `host.commitPatternSlot(i, patOrNull, opts?)`
+- `host.commitSongSlot(i, songOrNull, opts?)`
+- `host.commitGlobalSlot(i, glbOrNull, opts?)`
+
+Clearing a slot:
+
+```js
+host.commitPatternSlot(10, null); // clear pattern slot 10
+```
+
+### 5.2 Write: commit + optional SysEx send
+
+All `host.write*` methods default to **local-only** (`sendToMD:false`).  
+They only send SysEx when you explicitly pass `{ sendToMD: true } confirming that MIDI Out is selected.
+
+```js
+host.writeKitSlot(12, kit, { sendToMD: true });
+```
+
+### 5.3 `silent` + refresh once
+
+When doing lots of writes:
+
+```js
+for (let i = 0; i < 64; i++) {
+  host.commitKitSlot(i, kit, { silent: true });
 }
+host.ui.refreshSlots({ kits: true, patterns: false, songs: false, globals: false });
 ```
 
 ---
 
-## 5) Data access
+## 6) Data model reference
 
-### `host.getRefs()`
+This section documents the shapes you’ll see inside `host.getRefs()`. It is not every byte of SysEx, but it’s enough to build correct generators/editors.
 
-Returns **live references** to internal libraries. **Do not mutate these directly**.
+### 6.1 Kit slot wrapper (`refs.kits[i]`)
 
 ```ts
-host.getRefs(): {
-  globals: GlobalData[];
-  kits: Kit[];
-  patternSlots: (PatternSlot|null)[];
-  songs: Song[];
-  // also: mdModel, osVersion, etc may be present on host.getEnv()
-}
+type KitSlotWrap = {
+  data: KitObj;        // the actual kit
+  colorIndex: number;  // UI-only
+};
 ```
 
-### `host.getSelected()`
+### 6.2 Kit object (`KitObj`)
 
-Returns current selections from the UI:
+Kits are primarily arrays of 7-bit values (0..127). Common fields:
+
+- `kitName: string`
+- `sysexVersion: number`
+- `sysexPosition: number`
+
+Per-track arrays (length 16):
+
+- `machineAssignments: number[16]` (machine IDs)
+- `machineTonalFlags: number[16]` (0|1)
+- `trackLevels: number[16]` (0..127)
+- `muteTrigRelations: number[16][2]` (0..16, where 0 = "--")
+- `lfoBlocks: number[16][36]`
+- `controllers: number[16][24]` (P1..P24)
+- `trackFx: number[16][16]`
+- `routing: number[16][8]`
+
+Global arrays:
+
+- `masterFx: number[32]`
+- `uWBlock: number[12]` (UW bytes; present even if UW disabled, but may be ignored)
+
+Optional diagnostics:
+
+- `rawKit: any | null`
+
+**Good practice:** keep values in range 0..127 unless a field is explicitly documented otherwise.
+
+### 6.3 Pattern slot wrapper (`refs.patterns[i]`)
 
 ```ts
-host.getSelected(): {
+type PatternSlotWrap = {
+  kit: any;                // often null (not required by most modules)
+  kitColorIndex: number;   // UI-only
+  pattern: PatternObj;     // the actual pattern
+};
+```
+
+### 6.4 Pattern object (`PatternObj`)
+
+Important fields:
+
+- Identity / linkage:
+  - `patternNumber: number` (0..127)
+  - `origPos: number` (0..127)
+  - `assignedKitNumber: number` (0..63)
+
+- Timing:
+  - `length: number` (2..32 on MKI, 2..64 on MKII)
+  - `tempoMult: number`
+  - `scale: number`
+  - `swingAmount: number`
+  - `accentAmount: number`
+
+- Bitfields (step presence). Typically `Uint8Array(8)`:
+  - `trigBitsPerTrack: (Uint8Array(8) | number[8])[16]`
+  - `accentBitsPerTrack: ...`
+  - `swingBitsPerTrack: ...`
+  - `slideBitsPerTrack: ...`
+  - Global variants: `accentBitsGlobal`, `swingBitsGlobal`, `slideBitsGlobal`
+
+- Parameter locks (preferred edit surface):
+  - `locks: { track:number; step:number; paramID:number; paramVal:number }[]`
+
+Lock notes:
+- `paramID` is `1..48`
+  - `1..24` = main params (P1..P24)
+  - `25..48` = extra params
+- `locks[]` is the easiest thing to edit; the encoder rebuilds matrices from locks.
+
+Optional matrices (advanced; usually don’t edit directly):
+- `lockMasks`, `lockMasks2`
+- `paramMatrixMain`, `paramMatrixExtra`
+
+### 6.5 Editing locks example
+
+```js
+const refs = host.getRefs();
+const wrap = refs.patterns[0];
+if (!wrap) return;
+
+const p = host.clone(wrap.pattern);
+p.locks = Array.isArray(p.locks) ? p.locks.slice() : [];
+p.locks.push({ track: 0, step: 0, paramID: 1, paramVal: 80 }); // P1 on step 1
+host.commitPatternSlot(0, p);
+```
+
+### 6.6 Song object (`SongObj`)
+
+Song slots (`refs.songs[i]`) contain:
+
+- `slotIndex: number`
+- `name: string`
+- `version: number`
+- `revision: number`
+- `rows: { index:number; data: number[10] }[]`
+
+Each row has 10 bytes:
+
+0. patternOrCommand (0..127, `0xFE` = command, `0xFF` = END)  
+1. reserved (preserve)  
+2. repeats (0..63 => 1..64) OR LOOP times (0 = ∞)  
+3. targetRow (for LOOP/JUMP/HALT)  
+4–5. mute mask (low/high bytes)  
+6–7. BPM hi/lo (`0xFF` = inherit)  
+8. offset (0..63 steps)  
+9. endStep (offset + length)
+
+Commands:
+- END: byte0 = `0xFF`
+- LOOP/JUMP/HALT: byte0 = `0xFE`; byte3 = target row; byte2 = LOOP times (only for LOOP)
+
+### 6.7 Global object (`GlobalObj`)
+
+Globals are stored in `refs.globals[0..7]`. The exact schema is broader; treat it as an opaque object unless you know exactly what you’re changing. Prefer editing kits/patterns/songs for most creative modules.
+
+---
+
+## 7) Environment + selection
+
+### 7.1 `host.getEnv()`
+
+```ts
+type Env = {
+  mdModel: string;          // "MKI" or "MKII" in typical builds
+  mdUWEnabled: boolean;
+  mdOSVersion: string;
+  maxPatternLength: number; // 32 on MKI, 64 on MKII
+  romSlotCount: number;
+  ramRecordPlayCount: number;
+  slots: { globals: 8; kits: 64; patterns: 128; songs: 32 };
+};
+```
+
+### 7.2 `host.getSelected()`
+
+```ts
+type Selected = {
   kitSlot: number;
   patternSlot: number;
   songSlot: number;
   globalSlot: number;
-  kitTrack: number;
-  patternTrack: number;
+  activePanel: string;
 };
 ```
 
-### `host.clone(obj)`
+---
 
-Safe deep clone helper.
+## 8) Labels, machines, and params
 
-- Uses `structuredClone` when available (preserves typed arrays).
-- Falls back to `window.MDDT.util.deepClonePreserveTypedArrays` when available.
-- Last fallback: JSON clone (typed arrays will not survive).
-
-Use it any time you’re going to edit a referenced object:
+### 8.1 Pattern labels (`host.labels`)
 
 ```js
-const refs = host.getRefs();
-const kit = host.clone(refs.kits[0]);
-kit.kitName = "Hello";
-host.commitKitSlot(0, kit);
+host.labels.patternIndexToLabel?.(0);    // "A01"
+host.labels.patternLabelToIndex?.("B16"); // 31
 ```
+
+### 8.2 Machine helpers (`host.machines`)
+
+```js
+host.machines.getValid();        // [{ id, name, tags }, ...]
+host.machines.getValidMap();     // { [id]: name, ... }
+
+host.machines.resolve("TRX-BD"); // id or null
+host.machines.search("BD");      // list
+host.machines.findIds("BD");     // [id...]
+host.machines.getName(id);       // name
+host.machines.getParamLabels(id);// ["P1 label", ...]
+host.machines.supportsTonal(id); // boolean
+```
+
+### 8.3 Parameter labels (`host.params`)
+
+```js
+host.params.getLabel(machineID, 0, "machineParams"); // label for P1
+host.params.getLabel(machineID, 5, "machineParams"); // label for P6
+```
+
+Categories: `"machineParams" | "trackFx" | "routing"`.
 
 ---
 
-## 6) Writing and committing slots
+## 9) UI API (`host.ui`)
 
-### Important: local commit vs hardware send
+### 9.1 Slot/track targeting ranges
 
-- **Commit**: update MDDT’s local in-memory library and refresh UI (optionally silent).
-- **Write**: optionally transmit SysEx to the Machinedrum.
+Use these with sliders you render inside your module UI. Always scope to your module root element to avoid collisions.
 
-All writers accept options:
+```js
+const sr = host.ui.getSlotRange("pattern", { scope: el }); // {start,end,source}
+const tr = host.ui.getTrackRange("kit", { scope: el });    // {start,end,source}
+```
+
+Return:
 
 ```ts
-type WriteOpts = {
-  sendToMD?: boolean;   // default false on host writers
-  silent?: boolean;     // default true recommended for batch ops
-};
+{ start:number; end:number; source:"scope"|"lab"|"tools"|"selected"|"fallback" }
 ```
 
-### Kits
+### 9.2 Range + slider reading helpers
 
 ```js
-host.commitKitSlot(slotIndex, kitObj, { silent: true });
-host.writeKitSlot(slotIndex, kitObj, { sendToMD: false, silent: true });
-
-// Unsafe direct writer (sends by default in some internal flows)
-host._unsafeWriteKitSlot(slotIndex, kitObj, { sendToMD: true });
+host.ui.getSliderValues(idOrEl);       // array | null
+host.ui.getRangeValues(id);            // [a,b] | null
+host.ui.getRangeValuesIn(scopeEl, id); // [a,b] | null
 ```
 
-### Patterns
-
-Patterns are stored inside a PatternSlot wrapper:
+### 9.3 Refresh after silent commits
 
 ```js
-// patternSlots[i] is either null OR { pattern, kitColorIndex, kit? }
-const slot = host.clone(refs.patternSlots[i]) || { pattern: host.clone(refPattern), kitColorIndex: 0 };
-
-host.commitPatternSlot(i, slot, { silent: true });
-host.writePatternSlot(i, slot, { sendToMD: false, silent: true });
-
-host._unsafeWritePatternSlot(i, slot, { sendToMD: true });
+host.ui.refreshSlots({ kits:true, patterns:true, songs:false, globals:false });
 ```
-
-### Songs
-
-```js
-host.commitSongSlot(slotIndex, songObj, { silent: true });
-host.writeSongSlot(slotIndex, songObj, { sendToMD: false, silent: true });
-
-host._unsafeWriteSongSlot(slotIndex, songObj, { sendToMD: true });
-```
-
-### Globals
-
-```js
-host.commitGlobalSlot(slotIndex, globalObj, { silent: true });
-host.writeGlobalSlot(slotIndex, globalObj, { sendToMD: false, silent: true });
-
-host._unsafeWriteGlobalSlot(slotIndex, globalObj, { sendToMD: true });
-```
-
----
-
-## 7) Environment & logging
-
-### `host.getEnv()`
-
-Returns a stable snapshot describing the connected device and feature flags:
-
-```ts
-{
-  mdModel: "SPS-1" | "SPS-1UW" | "SPS-1 MKII" | "SPS-1UW MKII" | string;
-  osVersion: string;        // e.g. "1.63", "1.63UW", "1.73", etc
-  uwEnabled: boolean;       // inferred
-  midi: {
-    outSelected: boolean;
-    inSelected: boolean;
-  };
-  slots: {
-    globals: 8;
-    kits: 64;
-    patterns: 128;
-    songs: 32;
-    uwSamples: 48;
-  };
-}
-```
-
-### Logging
-
-- `host.log(...args)`
-- `host.warn(...args)`
-- `host.error(...args)`
-
-Use these instead of `console.*` when possible (they may be routed to UI in the future).
-
----
-
-## 8) Machine and parameter metadata
-
-### Machine catalog
-
-```js
-host.machines.getValid()      // list of machines for current MD model
-host.machines.search(query)   // fuzzy search by name/type
-host.machines.getMachineName(machineId)
-host.machines.getMachineParams(machineId) // main+extra param labels + param IDs
-```
-
-Machine entries include:
-
-```ts
-{
-  id: number;
-  name: string;
-  type: "GND" | "TRX" | "EFM" | "E12" | "P-I" | "P-II" | "DYN" | "INP" | "MID" | "CTR-AL" | ...;
-  uw?: boolean;
-}
-```
-
-### Parameter name helpers (Kit UI naming)
-
-```js
-host.params.getMasterFxName(index0to31)
-host.params.getRoutingName(index0to7)
-host.params.getTrackFxName(index0to15)
-```
-
-These return short strings suitable for UI labels/tooltips.
-
----
-
-## 9) UI helpers
-
-### Refresh helpers
-
-```js
-host.ui.refreshSlots({ kits: true, patterns: true, songs: true, globals: true });
-host.ui.refreshTrackUI();      // re-render track panels after data edits
-host.ui.pulse(el);             // quick visual feedback
-```
-
-### Range helpers
-
-Used with the range controls described below.
-
-```js
-host.ui.getSlotRange(scopeEl, type)
-// → { start:number, end:number } or null
-// type is typically: "global" | "kit" | "pattern" | "song"
-
-host.ui.getTrackRange(scopeEl)
-// → { start:number, end:number } or null
-
-host.ui.getRangeValues(scopeEl, ["myInputId", "myOtherId"])
-// → { myInputId: number, myOtherId: number }
-```
-
-**Note:** `scopeEl` is usually your module root element. The functions search within that subtree.
 
 ---
 
 ## 10) UI control factory (`host.ui.controls`)
 
-These helpers generate consistent Lab UI without needing custom HTML/CSS.
+These helpers create **Lab-styled UI** that matches the built-in panels.
 
-### `controls.uniqueId(prefix?)`
+The most important thing to know (and the source of many LLM-generated bugs):
 
-Returns a unique string id.
+- **Some helpers return DOM elements** (e.g. `miniButton()`).
+- **Some helpers return *objects containing DOM elements*** (e.g. `subpanel()`, `inputRow()`, `rangeRow()`).
+  - If you treat those return objects like DOM nodes (calling `.querySelector`, `.appendChild`, etc.), you will get runtime errors like:  
+    `TypeError: x.querySelector is not a function`.
 
-### `controls.subpanel({ title, description?, children? })`
+### Available helpers
 
-Creates a small framed panel with a title and optional description.
-
-### `controls.inputRow({ label, help?, inputEl })`
-
-Wraps an input element with label + help text.
-
-### `controls.rangeRow({ id, label, min, max, step?, value?, help? })`
-
-Creates a numeric `<input type="range">` row.
-- Adds `id` so you can read via `host.ui.getRangeValues`.
-
-### `controls.slotRangeRow({ id, label, type, defaultStart, defaultEnd })`
-
-Creates a 2-number range input for slot selection:
-- `type` is one of `"global" | "kit" | "pattern" | "song"`. (Use the same string when reading with `host.ui.getSlotRange`.)
-
-### `controls.trackRangeRow({ id, label, defaultStart, defaultEnd })`
-
-Creates a 2-number range input for track selection (0..15).
-
-### `controls.select({ id?, label?, options, value?, onChange? })`
-
-Creates a `<select>` element.
-- `options` can be `[{ value, label }]` or strings.
-
-### `controls.button({ label, onClick, kind? })`
-
-Creates a `<button>`.
-- `kind` may be used for styling (`"primary"`, `"danger"`, etc) depending on theme.
-
-### `controls.resetPanel({ onReset })` and `controls.randomizePanel({ onRandomize })`
-
-Convenience panels that generate consistent “Reset” / “Randomize” UI.
-
----
-
-## 11) Pattern helpers
-
-### Step bitfields
-
-MDDT represents steps as **64-step bitfields** stored in 8 bytes (`Uint8Array(8)`).
-
-Helpers:
+#### `controls.uniqueId(prefix?) -> string`
+Returns a reasonably-unique DOM id.
 
 ```js
-host.pattern.bitfieldFromSteps([0, 4, 8, 12]) // → Uint8Array(8)
-host.pattern.stepsFromBitfield(bitfield)      // → [0, 4, 8, 12]
-host.pattern.trimToLength(bitfield, len)      // clears bits >= len
+const id = host.ui.controls.uniqueId("myMod");
 ```
 
-This is the easiest way to author/edit trigs, accents, swings, slides, and masks.
+#### `controls.miniButton(label, title, onClick) -> HTMLButtonElement`
+
+```js
+const btn = host.ui.controls.miniButton("Start", "Start thing", () => host.log("go"));
+el.appendChild(btn);
+```
+
+#### `controls.subpanel({ title, subtitle?, id?, actions?, contentEl? }) -> { section, body, header, actions, titles, titleEl }`
+
+Creates a standard Lab “card” section.
+
+Return shape (exact keys):
+
+```ts
+{
+  section: HTMLElement; // <section class="lab-subpanel">
+  body: HTMLElement;    // <div class="lab-subpanel-body">
+  header: HTMLElement;  // <div class="lab-subpanel-header">
+  actions: HTMLElement; // <div class="lab-subpanel-actions">
+  titles: HTMLElement;  // <div class="lab-subpanel-titles">
+  titleEl: HTMLElement; // <h3 class="lab-subpanel-title">
+}
+```
+
+**Important**
+- Append **`panel.section`**, not `panel.el`.
+
+```js
+const controls = host.ui.controls;
+
+const panel = controls.subpanel({
+  id: "my-panel",
+  title: "Track 1",
+  subtitle: "Offline"
+});
+
+panel.body.appendChild(document.createTextNode("Hello"));
+el.appendChild(panel.section);
+```
+
+**Updating the subtitle later**
+- `subpanel()` does *not* return a direct `subtitleEl`.
+- If you need to update it, query it from `panel.titles`:
+
+```js
+const subtitleEl = panel.titles.querySelector(".lab-subpanel-subtitle");
+if (subtitleEl) subtitleEl.textContent = "Connected";
+```
+
+#### `controls.inputRow(labelText, type, id, defaultValue, attributes?) -> { row, input }`
+
+Creates a label + **`<input>`** or **`<textarea>`** row.
+
+- `type` is for inputs: `"text"`, `"number"`, `"checkbox"`, etc.
+- Special case: if `type === "textarea"` it creates a `<textarea>`.
+- **There is no `"select"` support** (it will create `<input type="select">`, which is not a real dropdown).
+
+Return shape:
+
+```ts
+{
+  row: HTMLElement;   // wrapper <div>
+  input: HTMLElement; // <input> or <textarea>
+}
+```
+
+Correct usage:
+
+```js
+const { row, input } = controls.inputRow("Name", "text", "myName", "Init");
+input.onchange = () => host.log("new name", input.value);
+panel.body.appendChild(row);
+```
+
+Incorrect usage (will throw):
+
+```js
+const r = controls.inputRow("Name", "text", "myName", "Init");
+r.querySelector("input"); // ❌ r is an object, not a DOM element
+```
+
+#### Dropdown / `<select>` recipe (no built-in helper)
+
+If you want a dropdown, build it manually:
+
+```js
+function selectRow(labelText, id, options, initialValue) {
+  const row = document.createElement("div");
+  row.style.marginBottom = "8px";
+
+  const label = document.createElement("label");
+  label.htmlFor = id;
+  label.textContent = labelText + " ";
+  row.appendChild(label);
+
+  const sel = document.createElement("select");
+  sel.id = id;
+
+  options.forEach((optVal) => {
+    const opt = document.createElement("option");
+    opt.value = opt.textContent = String(optVal);
+    sel.appendChild(opt);
+  });
+
+  if (initialValue != null) sel.value = String(initialValue);
+  row.appendChild(sel);
+
+  return { row, select: sel };
+}
+
+const rate = selectRow("Rate", "rate-1", ["4n","8n","16n","32n"], "16n");
+rate.select.onchange = () => host.log("rate", rate.select.value);
+panel.body.appendChild(rate.row);
+```
+
+#### `controls.rangeRow(...) -> { row, id, inputEl, sliderEl, get(), set() }`
+
+Creates a noUiSlider-backed (when available) 2-handle range slider with a hidden input storing `"start,end"`.
+
+You almost never need to touch `inputEl` directly; use `get()` / `set()`.
+
+#### `controls.slotRangeRow(kind, opts?)` and `controls.trackRangeRow(kind, opts?)`
+
+Convenience wrappers that create “slot range” and “track range” sliders with the standard Lab look.
+
+#### `controls.resetPanel(panelEl)` / `controls.randomizePanel(panelEl)`
+
+Utilities that reset/randomize inputs and sliders inside a given panel element.
+
+### Avoid mixing internal helpers
+
+The main app’s built-in Lab panels use internal functions like `createInputRow(...)`.  
+Those are **not** part of the exported Host API, and imported modules should not rely on them.
+
+Use only `host.ui.controls.*` plus normal DOM APIs.
+
+
+## 11) Pattern helpers (`host.pattern`)
+
+MDDT uses 64-step bitfields stored in 8 bytes. These helpers prevent off-by-one and masking mistakes.
+
+```js
+const bits = host.pattern.bitfieldFromSteps(64, [0, 4, 8, 12]);
+const steps = host.pattern.stepsFromBitfield(bits, 64);
+host.pattern.trimToLength(patternObj, 16);
+```
 
 ---
 
-## 12) Data schemas (complete field lists)
+## 12) MIDI API (`host.midi`)
 
-### 12.1 Kit
+Stable wrapper around the currently selected MIDI ports.
 
-A Kit is stored in `host.getRefs().kits[slotIndex]`.
+### Properties
+- `host.midi.in`  → selected `MIDIInput` or `null`
+- `host.midi.out` → selected `MIDIOutput` or `null`
 
-```ts
-type Kit = {
-  kitName: string;
+### `host.midi.send(data, timestampMs?) -> boolean`
 
-  // SysEx metadata
-  sysexVersion: number;     // usually 3
-  sysexPosition: number;    // 0..63
-
-  // Per-track configuration
-  machineAssignments: number[16];   // machine ID per track
-  machineTonalFlags: number[16];    // 0|1 per track
-  trackLevels: number[16];          // 0..127 per track
-
-  // Track overview “MutePos / TrigPos”
-  muteTrigRelations: number[16][2]; // [mutePos, trigPos], 0='--'
-
-  // LFO block: 36 bytes per track (most are raw/reserved, preserve if unsure)
-  lfoBlocks: number[16][36];
-
-  // Machine parameter values
-  controllers: number[16][24];      // P1..P24 (0..127)
-
-  // Track FX (raw 0..127)
-  trackFx: number[16][16];
-
-  // Routing (raw 0..127)
-  routing: number[16][8];
-
-  // Master FX (4 blocks × 8 params = 32 values)
-  masterFx: number[32];
-
-  // UW-only bytes (safe to keep as zeros on non-UW)
-  uWBlock: number[12];
-
-  // Optional raw payload (round-tripping / diagnostics)
-  rawKit?: any;
-};
+```js
+host.midi.send([0x90|0, 60, 100]); // Note On ch0, C4
+host.midi.send([0x80|0, 60, 0]);   // Note Off
+host.midi.send([0xB0|0, 1, 64]);   // CC1
 ```
 
-**Editing guidance**
-- For machine parameters: use `host.machines.getMachineParams(machineId)` to learn which params exist and their labels.
-- Preserve unknown parts of `lfoBlocks[t]` if you only edit the UI-exposed fields.
+With scheduling:
 
-### 12.2 PatternSlot + Pattern
-
-Patterns live in `host.getRefs().patternSlots[slotIndex]`.
-
-```ts
-type PatternSlot = null | {
-  kit?: any;               // often null in current app; reserved
-  kitColorIndex: number;   // UI only
-  pattern: Pattern;
-};
-
-type Pattern = {
-  // identity
-  patternNumber: number;    // 0..127
-  origPos: number;          // where to write (often same as patternNumber)
-  assignedKitNumber: number;// 0..63 (kit slot for the MD)
-
-  version: number;
-  revision: number;
-
-  extendedFlag: boolean;
-
-  length: number;           // 2..64 (MKI may clamp to 32)
-  tempoMult: number;        // raw enum (MD tempo multiplier)
-  scale: number;            // raw enum (depends on MD model)
-  swingAmount: number;      // 0..127
-  accentAmount: number;     // 0..15-ish (raw nibble used by encoder)
-
-  accentEditAll: boolean;
-  swingEditAll: boolean;
-  slideEditAll: boolean;
-
-  // per-track 64-step bitfields (8 bytes each)
-  trigBitsPerTrack: Uint8Array[16];      // each: Uint8Array(8)
-  accentBitsPerTrack: Uint8Array[16];
-  swingBitsPerTrack: Uint8Array[16];
-  slideBitsPerTrack: Uint8Array[16];
-
-  // global 64-step bitfields
-  accentBitsGlobal: Uint8Array;          // Uint8Array(8)
-  swingBitsGlobal: Uint8Array;           // Uint8Array(8)
-  slideBitsGlobal: Uint8Array;           // Uint8Array(8)
-
-  // per-track edit masks (also 64-step bitfields)
-  trackAccentMasks: Uint8Array[16];
-  trackSwingMasks: Uint8Array[16];
-  trackSlideMasks: Uint8Array[16];
-
-  // Parameter locks: recommended edit surface
-  locks: Array<{ track:number; step:number; paramID:number; paramVal:number }>;
-
-  // Internal matrices (encoder rebuilds from locks; preserve if unsure)
-  lockMasks: Uint8Array[16];
-  lockMasks2: Uint8Array[16];
-  paramMatrixMain: Uint8Array[16];   // each: Uint8Array(24)
-  paramMatrixExtra: Uint8Array[16];  // each: Uint8Array(24)
-
-  rawPattern?: any;
-};
+```js
+host.midi.send([0x90|0, 60, 100], performance.now() + 10);
 ```
 
-**Lock param IDs**
-- `paramID` is **1-based**.
-- `1..24` → “Main” params (P1..P24)
-- `25..48` → “Extra” params (P1..P24, extra bank)
+### `host.midi.onMessage(handler) -> unsubscribe`
 
-### 12.3 Song + SongRow
-
-Songs live in `host.getRefs().songs[slotIndex]`.
-
-```ts
-type Song = {
-  slotIndex: number;      // 0..31
-  name: string;
-  version: number;
-  revision: number;
-  rows: SongRow[];        // usually 256 entries
-};
-
-type SongRow = {
-  index: number;          // 0..255
-  data: Uint8Array;       // length 10
-};
+```js
+const unsub = host.midi.onMessage((ev) => {
+  host.log("MIDI IN", Array.from(ev.data));
+});
+unsub();
 ```
 
-**Row `data[10]` byte map (used by MDDT UI and encoder)**
-
-| Byte | Meaning |
-|------|---------|
-| 0 | Pattern or command (`0..127` pattern, `0xFE` special command, `0xFF` END) |
-| 1 | Reserved (preserve) |
-| 2 | Repeats (`0..63` = 1..64) OR LOOP times (`0 = ∞`) |
-| 3 | Target row for commands (LOOP/JUMP/HALT) |
-| 4 | Mute bitmask low byte |
-| 5 | Mute bitmask high byte |
-| 6 | BPM high byte (`0xFF` = inherit) |
-| 7 | BPM low byte (`0xFF` = inherit) |
-| 8 | Offset (`0..63` steps) |
-| 9 | End step = offset + length |
-
-**Commands**
-- END: `data[0] = 0xFF`
-- LOOP/JUMP/HALT: `data[0] = 0xFE`, and:
-  - `data[3]` = target row
-  - LOOP uses `data[2]` as “times” (`0 = ∞`)
+### Missing ports
+If no output is selected, `host.midi.out` is `null`. Don’t throw; show a warning in your UI.
 
 ---
 
-## 13) “LLM-complete” module authoring checklist
+## 13) Audio / Tone.js API (`host.audio`)
 
-1. **Target domain(s)**: kits / patterns / songs / globals (which libraries will be edited?)
-2. **Scope controls**: slot range, track range, and whether to operate on “selected slot only” or ranges.
-3. **Safety**: should the module ever send SysEx? (default should be **local only**)
-4. **Edits**: which fields are touched and the constraints (e.g., don’t change machine assignments, only trig bits).
-5. **UI**: what controls should appear (sliders, dropdowns, buttons, presets).
-6. **Undo strategy**: (optional) store a snapshot to restore on demand.
+Tone is loaded lazily (only when requested).
 
-A prompt can be expressed as a structured spec:
+### `host.audio.ensureToneLoaded() -> Promise<Tone>`
+Loads Tone.js on demand (pinned CDN + fallbacks).
+
+### `host.audio.ensureToneStarted() -> Promise<Tone>`
+Starts or resumes audio context. **Must be called from a user gesture**.
+
+### `host.audio.toneTimeToMidiMs(timeSeconds) -> number`
+
+Convert Tone callback seconds → WebMIDI milliseconds:
+
+```js
+const tMs = host.audio.toneTimeToMidiMs(time);
+host.midi.send([0x90|0, 60, 100], tMs);
+```
+
+---
+
+## 14) Canonical lifecycle patterns (Start/Stop + cleanup)
+
+Because modules persist for the whole session, use a cleanup stack.
+
+```js
+function makeCleanup(host) {
+  const fns = [];
+  return {
+    add(fn) { if (typeof fn === "function") fns.push(fn); },
+    run() {
+      while (fns.length) {
+        const fn = fns.pop();
+        try { fn(); } catch (e) { host?.warn?.("cleanup failed", e); }
+      }
+    }
+  };
+}
+```
+
+**Start/Stop skeleton**
+
+```js
+let running = false;
+const cleanup = makeCleanup(host);
+
+function stop() {
+  if (!running) return;
+  running = false;
+  cleanup.run();
+}
+
+async function start() {
+  if (running) return;
+  running = true;
+
+  try {
+    // start loops/listeners here
+  } catch (e) {
+    host.error("Start failed:", e);
+    stop();
+  }
+}
+```
+
+---
+
+## 15) Recipes (Tone clock → MIDI)
+
+These are proven templates for LLM-generated modules.
+
+### 15.1 Step sequencer
+
+```js
+async function startStepSeq({ midi, audio, noteOn, noteOff, cleanup, opts }) {
+  const Tone = await audio.ensureToneStarted();
+
+  const bpm = opts.bpm ?? 120;
+  const ch = opts.ch ?? 0;
+  const gateMs = opts.gateMs ?? 90;
+
+  try { Tone.Transport.bpm.value = bpm; } catch (_) {}
+
+  const pattern = opts.pattern ?? [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0];
+  const notes   = opts.notes   ?? [60];
+  let step = 0;
+
+  const transportWasRunning = (Tone.Transport.state === "started");
+
+  const loop = new Tone.Loop((time) => {
+    const tMs = audio.toneTimeToMidiMs(time);
+
+    if (pattern[step % pattern.length]) {
+      const note = notes[step % notes.length] ?? 60;
+      noteOn(ch, note, 100, tMs);
+      noteOff(ch, note, tMs + gateMs);
+    }
+    step++;
+  }, "16n").start(0);
+
+  cleanup.add(() => { try { loop.stop(); loop.dispose(); } catch (_) {} });
+
+  if (!transportWasRunning) {
+    Tone.Transport.start();
+    cleanup.add(() => { try { Tone.Transport.stop(); } catch (_) {} });
+  }
+}
+```
+
+### 15.2 Arpeggiator (MIDI In → MIDI Out)
+
+```js
+async function startArp({ midi, audio, noteOn, noteOff, cleanup, opts }) {
+  const Tone = await audio.ensureToneStarted();
+
+  const ch = opts.ch ?? 0;
+  const rate = opts.rate ?? "16n";
+  const gateMs = opts.gateMs ?? 80;
+
+  const held = new Set();
+
+  const unsub = midi.onMessage((ev) => {
+    const d = ev.data;
+    const st = d[0] & 0xF0;
+    const note = d[1] ?? 0;
+    const vel  = d[2] ?? 0;
+
+    if (st === 0x90 && vel > 0) held.add(note & 0x7F);
+    if (st === 0x80 || (st === 0x90 && vel === 0)) held.delete(note & 0x7F);
+  });
+
+  cleanup.add(unsub);
+
+  let idx = 0;
+  const transportWasRunning = (Tone.Transport.state === "started");
+
+  const loop = new Tone.Loop((time) => {
+    const notes = Array.from(held).sort((a,b) => a-b);
+    if (!notes.length) return;
+
+    const n = notes[idx % notes.length];
+    idx++;
+
+    const tMs = audio.toneTimeToMidiMs(time);
+    noteOn(ch, n, 100, tMs);
+    noteOff(ch, n, tMs + gateMs);
+  }, rate).start(0);
+
+  cleanup.add(() => { try { loop.stop(); loop.dispose(); } catch (_) {} });
+
+  if (!transportWasRunning) {
+    Tone.Transport.start();
+    cleanup.add(() => { try { Tone.Transport.stop(); } catch (_) {} });
+  }
+}
+```
+
+### 15.3 CC modulator (LFO → MIDI CC)
+
+```js
+function startCcLfo({ midi, cleanup, opts }) {
+  const ch = opts.ch ?? 0;
+  const cc = opts.cc ?? 1;
+  const depth = opts.depth ?? 63;
+  const center = opts.center ?? 64;
+  const hz = opts.hz ?? 0.25;
+  const intervalMs = opts.intervalMs ?? 20;
+
+  const t0 = performance.now();
+  const id = setInterval(() => {
+    const t = (performance.now() - t0) / 1000;
+    const s = Math.sin(t * Math.PI * 2 * hz);
+    let v = Math.round(center + s * depth);
+    if (v < 0) v = 0;
+    if (v > 127) v = 127;
+    midi.send([0xB0 | (ch & 0x0F), cc & 0x7F, v]);
+  }, intervalMs);
+
+  cleanup.add(() => clearInterval(id));
+}
+```
+
+---
+
+## 16) Common pitfalls (especially for LLM-generated modules)
+
+- Keep `mount()` synchronous; never `async mount()`.
+- Don’t start anything automatically. Always require Start click.
+- Own what you create: intervals, listeners, Tone objects, MIDI subscriptions.
+- Don’t globally wipe Tone schedules; avoid `Tone.Transport.cancel()`.
+- Timing units: Tone callback `time` is **seconds**, WebMIDI timestamps are **ms**.
+- When editing patterns, prefer `pattern.locks[]` and bitfield helpers.
+
+---
+
+## 17) LLM prompt template (recommended)
+
+Include this verbatim when prompting an LLM to generate a Lab module:
 
 ```txt
-Module name:
-What it edits (kits/patterns/songs/globals):
-User controls (range pickers, sliders, presets):
-Behavior rules / constraints:
-Local-only or hardware-write:
-Edge cases (empty slots, MKI 32-step patterns, UW missing):
+You are writing a single-file MDDT Lab module for Host API v3.
+
+ABSOLUTE RULES
+- Register using: MDDT.registerLabModule({ id, title, mount(el, host) { ... } })
+- `mount()` MUST BE SYNCHRONOUS. Do NOT declare `async mount()`.
+- Output one self-contained JS file suitable for Lab → Import → Paste module code.
+
+START/STOP + CLEANUP
+- Nothing starts automatically on mount. Provide Start and Stop buttons.
+- Starting twice must NOT create duplicate loops/listeners.
+- On Stop: clear intervals/timeouts/RAF, remove event listeners, unsubscribe MIDI handlers, dispose Tone objects, and send Note Off for any active notes.
+
+HOST API
+- Use host.getRefs() for reading, and host.clone() before editing.
+- Kits are refs.kits[i].data, patterns are refs.patterns[i].pattern (pattern slots are wrappers).
+- Use host.commit*Slot / host.write*Slot. host.write*Slot defaults to sendToMD:false; only set sendToMD:true if asked.
+
+MIDI
+- Use host.midi.in / host.midi.out / host.midi.send() / host.midi.onMessage().
+- If host.midi.out is null, show a visible warning and do not throw.
+
+TONE (if used)
+- Use host.audio.ensureToneStarted() ONLY from a user click (Start button).
+- Never call Tone.Transport.cancel().
+- Keep handles to Tone objects you create and stop/dispose them on Stop.
+- Tone callback `time` is seconds; WebMIDI timestamps are ms; convert with host.audio.toneTimeToMidiMs(time).
+
+IMPORTS
+- No relative imports (blob: URLs).
+- No bare-module imports unless bundled.
+- Prefer plain DOM + host.ui.controls.
+
+DELIVERABLE
+- Implement the requested behavior with clear UI and safe defaults.
 ```
 
 ---
 
-## 14) Creation
+## Appendix: `host.getKnowledge()` (tooling snapshot)
 
-Using **only this guide**, an LLM (or human) can implement modules:
-
-- The full host API surface (registration, refs, clone, commit/write, UI controls)
-- Complete field lists for Kits, Patterns, Songs
-- Bitfield helpers for pattern step authoring
-- Song row byte mapping (previously a common missing piece)
-- Machine/parameter metadata APIs to build UI based on MD capabilities
-
-If a module needs something not listed here, the best way to make it “LLM-complete” is to add:
-- A formal JSON Schema export (generated from runtime) and/or
-- Higher-level helpers (e.g., `host.song.decodeRow(row)` / `encodeRow(spec)`), which reduce the need to edit raw bytes.
-
----
-
-## 15) Practical tips & gotchas
-
-- **Always clone** objects from `host.getRefs()` before editing.
-- Prefer **commit + refresh once**:
-  - Do many `commit*Slot(..., {silent:true})`
-  - Then one `host.ui.refreshSlots({ kits:true, patterns:true, songs:true, globals:true })` (or only the libraries you touched).
-- **MKI vs MKII**: Pattern length may clamp (MKI <= 32). Always clamp/trim bitfields with `host.pattern.trimToLength`.
-- **Typed arrays**: Use `host.clone` and `host.pattern.*` helpers to avoid subtle encoding bugs.
-- **Don’t assume UW**: check `host.getEnv().uwEnabled`.
-
----
-
-## Appendix: `host.getKnowledge()`
-
-You can call:
+`host.getKnowledge()` returns a JSON-friendly snapshot of environment + schema + machine list.
 
 ```js
-const knowledge = host.getKnowledge({ scopeEl: yourModuleRoot });
+const k = host.getKnowledge();
+console.log(k.env, k.schema);
 ```
 
-It returns a compact snapshot containing:
-- `env`
-- `schema` (kit/pattern/song field shapes)
-- `machines` summary list
-- `params` label lists
-- UI `ranges` if your module includes range controls
-
-This is useful for debugging or to help an LLM reason about what’s available at runtime.
+Use it for introspection/tooling; for live UI ranges prefer `host.ui.getSlotRange()` / `host.ui.getTrackRange()` directly.

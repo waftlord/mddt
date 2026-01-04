@@ -12,7 +12,7 @@ document.addEventListener('DOMContentLoaded', function () {
       </style>
 
       <h2>MDDT — Machinedrum Data Tool</h2>
-          <h3>V2.0</h3>
+          <h3>v1.0.0</h3>
 
       <p>
         <strong>MDDT</strong> is an independent, browser-based librarian and data
@@ -58,7 +58,9 @@ document.addEventListener('DOMContentLoaded', function () {
       </p>
       <p>
         You may obtain a copy of the License at:<br>
-        <code>http://www.apache.org/licenses/LICENSE-2.0</code>
+        <a href="https://www.apache.org/licenses/LICENSE-2.0">
+          https://www.apache.org/licenses/LICENSE-2.0
+        </a>
       </p>
       <p>
         Unless required by applicable law or agreed to in writing, software
@@ -81,8 +83,10 @@ document.addEventListener('DOMContentLoaded', function () {
       </p>
 
       <p>
-        Contributions, bug reports, and feature suggestions are welcome.
-      </p>
+      Contributions, bug reports, and feature suggestions are welcome —
+      please open an issue or pull request at
+      <a href="https://github.com/waftlord/mddt">github.com/waftlord/mddt</a>
+    </p>
 
       <h3>Contact</h3>
  <p>
