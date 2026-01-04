@@ -1957,6 +1957,259 @@ window.writeSongSlot = function writeSongSlot(slotIndex, songObj, opts = { sendT
     }
   };
 
+
+  // ───────────────────────────────────────────────────────────
+  // Machinedrum Live MIDI helpers (Skewclid / Nodetrix compatible)
+  // ───────────────────────────────────────────────────────────
+  // These helpers encode the exact "live MIDI contract" this codebase uses:
+  // - Base channel: window.globalData.midiBase (0..12 = MIDI ch 1..13, 13 = OFF)
+  // - Track trigs: Note On/Off on base channel, using note numbers resolved from keymap
+  // - Param CC: CC numbers come from window.MD_CC_MAP per track
+  // - CC channel routing: baseChan + floor((trackNum-1)/4) (4-track groups)
+  //
+  // IMPORTANT: These do not send SysEx. They are for real-time performance MIDI.
+  host.md = host.md || {};
+
+  const __MD_DEFAULT_TRACK_NOTES = [36,38,40,41,43,45,47,48,50,52,53,55,57,59,60,62];
+
+  function __mdGetBaseChannel(){
+    const baseRaw = (window.globalData && typeof window.globalData.midiBase === "number")
+      ? window.globalData.midiBase
+      : 0;
+    let base = (Number.isFinite(baseRaw) ? (baseRaw | 0) : 0);
+    // MD encodes base as 0..12 (MIDI ch 1..13) and 13 = OFF
+    if (base === 13) return null;
+    if (base < 0) base = 0;
+    if (base > 12) base = 12;
+    return base;
+  }
+
+  function __mdResolveTrackNoteMap(){
+    const rawMap = window.globalData && window.globalData.keymap;
+    let keymap;
+
+    // Host may expose keymap as:
+    // - 128-length note->track map (values are trackIDs 0..15)
+    // - 16-length track->note map
+    if (rawMap && (Array.isArray(rawMap) || ArrayBuffer.isView(rawMap)) && rawMap.length >= 128) {
+      keymap = __MD_DEFAULT_TRACK_NOTES.map((def, trackID) => {
+        let note = -1;
+        for (let n = 0; n < 128; n++) {
+          const v = rawMap[n];
+          if (((v == null ? 0 : v) & 0x7F) === (trackID & 0x7F)) { note = n; break; }
+        }
+        return (note >= 0 && note <= 127) ? note : def;
+      });
+    }
+    else if (rawMap && (Array.isArray(rawMap) || ArrayBuffer.isView(rawMap)) && rawMap.length >= 16) {
+      keymap = Array.from({ length: 16 }, (_, i) => {
+        const n = Number(rawMap[i]);
+        return (!Number.isFinite(n) || n < 0 || n > 127) ? __MD_DEFAULT_TRACK_NOTES[i] : (n | 0);
+      });
+    }
+    else {
+      keymap = __MD_DEFAULT_TRACK_NOTES.slice();
+    }
+
+    // Safety: some hosts can report all zeros during init
+    if (keymap.every(n => n === 0)) keymap = __MD_DEFAULT_TRACK_NOTES.slice();
+    return keymap;
+  }
+
+  function __mdNormalizeTrack(trackNum){
+    const t = Number(trackNum);
+    if (!Number.isFinite(t)) return null;
+    const tn = t | 0;
+    // Track numbers are 1..16 in the Machinedrum UI and MD_CC_MAP.
+    if (tn < 1 || tn > 16) return null;
+    return tn;
+  }
+
+  function __mdNormalizeParamIndex(p){
+    const n = Number(p);
+    if (!Number.isFinite(n)) return null;
+    const i = n | 0;
+    // Accept 1..24 (P1..P24) and 0..23 (0-based index)
+    if (i >= 1 && i <= 24) return i - 1;
+    if (i >= 0 && i <= 23) return i;
+    return null;
+  }
+
+  function __clamp7bit(v){
+    let n = Number(v);
+    if (!Number.isFinite(n)) n = 0;
+    n = Math.round(n);
+    if (n < 0) n = 0;
+    if (n > 127) n = 127;
+    return n;
+  }
+
+  host.md.getBaseChannel = function(){
+    return __mdGetBaseChannel();
+  };
+
+  // Returns an array of 16 note numbers (track 1..16 → MIDI note 0..127).
+  host.md.getTrackNoteMap = function(){
+    return __mdResolveTrackNoteMap();
+  };
+
+  // Resolve a Machinedrum track number (1..16) to its trig note number (0..127).
+  host.md.getTrackNote = function(trackNum){
+    const tn = __mdNormalizeTrack(trackNum);
+    if (tn == null) return null;
+    const map = __mdResolveTrackNoteMap();
+    return map[tn - 1] ?? null;
+  };
+
+  // Notes/trigs always go out on the base channel.
+  host.md.getNoteChannel = function(){
+    const base = __mdGetBaseChannel();
+    return (base == null) ? null : (base & 0x0F);
+  };
+
+  // CC channel is base + group, where group is 0..3 for tracks 1..16.
+  host.md.getCcChannel = function(trackNum){
+    const tn = __mdNormalizeTrack(trackNum);
+    if (tn == null) return null;
+    const base = __mdGetBaseChannel();
+    if (base == null) return null;
+    const group = Math.floor((tn - 1) / 4);
+    return (base + group) & 0x0F;
+  };
+
+  // Resolve P1..P24 (or 0..23) to the correct CC number for this track.
+  host.md.getParamCC = function(trackNum, p){
+    const tn = __mdNormalizeTrack(trackNum);
+    if (tn == null) return null;
+    const idx = __mdNormalizeParamIndex(p);
+    if (idx == null) return null;
+    const mapObj = window.MD_CC_MAP && window.MD_CC_MAP[tn];
+    const cc = (mapObj && Array.isArray(mapObj.param)) ? mapObj.param[idx] : null;
+    return (cc == null) ? null : (cc & 0x7F);
+  };
+
+  host.md.getLevelCC = function(trackNum){
+    const tn = __mdNormalizeTrack(trackNum);
+    if (tn == null) return null;
+    const mapObj = window.MD_CC_MAP && window.MD_CC_MAP[tn];
+    const cc = mapObj ? mapObj.level : null;
+    return (cc == null) ? null : (cc & 0x7F);
+  };
+
+  host.md.getMuteCC = function(trackNum){
+    const tn = __mdNormalizeTrack(trackNum);
+    if (tn == null) return null;
+    const mapObj = window.MD_CC_MAP && window.MD_CC_MAP[tn];
+    const cc = mapObj ? mapObj.mute : null;
+    return (cc == null) ? null : (cc & 0x7F);
+  };
+
+  // Send a Machinedrum track trig (Note On + Note Off) using the global keymap + base channel.
+  // trackNum: 1..16 (Machinedrum track number)
+  host.md.sendTrackTrig = function(trackNum, vel = 100, timestampMs, gateMs = 80){
+    const tn = __mdNormalizeTrack(trackNum);
+    if (tn == null) return false;
+
+    // Must have an output selected.
+    if (!window.selectedMidiOut) return false;
+
+    const base = __mdGetBaseChannel();
+    if (base == null) return false;
+
+    const note = host.md.getTrackNote(tn);
+    if (note == null) return false;
+
+    const ch = base & 0x0F;
+    let v = __clamp7bit(vel);
+    if (v <= 0) v = 1; // avoid turning Note On into Note Off
+
+    const gate = Math.max(0, Math.min(5000, Number(gateMs) || 0));
+
+    const t0 = (typeof timestampMs === "number" && Number.isFinite(timestampMs))
+      ? timestampMs
+      : performance.now();
+
+    const onOk  = host.midi.send([0x90 | ch, note & 0x7F, v & 0x7F], t0);
+    const offOk = host.midi.send([0x80 | ch, note & 0x7F, 0], t0 + gate);
+
+    return !!(onOk && offOk);
+  };
+
+  // Send a Machinedrum parameter CC (P1..P24) using MD_CC_MAP + per-group CC channel routing.
+  host.md.sendTrackParam = function(trackNum, p, value, timestampMs){
+    const tn = __mdNormalizeTrack(trackNum);
+    if (tn == null) return false;
+
+    if (!window.selectedMidiOut) return false;
+
+    const base = __mdGetBaseChannel();
+    if (base == null) return false;
+
+    const ccChan = host.md.getCcChannel(tn);
+    if (ccChan == null) return false;
+
+    const ccNum = host.md.getParamCC(tn, p);
+    if (ccNum == null) return false;
+
+    const val = __clamp7bit(value);
+
+    return host.midi.send([0xB0 | (ccChan & 0x0F), ccNum & 0x7F, val & 0x7F], timestampMs);
+  };
+
+  // Convenience: Track level + mute CC (optional).
+  host.md.sendTrackLevel = function(trackNum, value, timestampMs){
+    const tn = __mdNormalizeTrack(trackNum);
+    if (tn == null) return false;
+
+    if (!window.selectedMidiOut) return false;
+
+    const ccChan = host.md.getCcChannel(tn);
+    if (ccChan == null) return false;
+
+    const ccNum = host.md.getLevelCC(tn);
+    if (ccNum == null) return false;
+
+    const val = __clamp7bit(value);
+    return host.midi.send([0xB0 | (ccChan & 0x0F), ccNum & 0x7F, val & 0x7F], timestampMs);
+  };
+
+  host.md.sendTrackMute = function(trackNum, muted, timestampMs){
+    const tn = __mdNormalizeTrack(trackNum);
+    if (tn == null) return false;
+
+    if (!window.selectedMidiOut) return false;
+
+    const ccChan = host.md.getCcChannel(tn);
+    if (ccChan == null) return false;
+
+    const ccNum = host.md.getMuteCC(tn);
+    if (ccNum == null) return false;
+
+    const val = muted ? 127 : 0;
+    return host.midi.send([0xB0 | (ccChan & 0x0F), ccNum & 0x7F, val & 0x7F], timestampMs);
+  };
+
+  // Debug helper: show the effective mapping for a track.
+  host.md.describeTrack = function(trackNum){
+    const tn = __mdNormalizeTrack(trackNum);
+    if (tn == null) return null;
+
+    const base = __mdGetBaseChannel();
+    const noteChan = (base == null) ? null : (base & 0x0F);
+    const ccChan   = host.md.getCcChannel(tn);
+    const note     = host.md.getTrackNote(tn);
+    const p1CC     = host.md.getParamCC(tn, 1);
+
+    return {
+      track: tn,
+      baseChannel: base,
+      noteChannel: noteChan,
+      ccChannel: ccChan,
+      trigNote: note,
+      p1CC
+    };
+  };
+
   // ───────────────────────────────────────────────────────────
   // Tone.js helpers for Lab modules (lazy loader + user-gesture start)
   // ───────────────────────────────────────────────────────────

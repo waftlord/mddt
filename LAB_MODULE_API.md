@@ -3,7 +3,7 @@
 **Audience:** humans and LLMs generating Lab modules.  
 **API:** Host API v3 (`host.apiVersion === 3`)
 
-This is the single, up-to-date contract for writing Lab modules for MDDT. It intentionally documents **only the current supported API** (no fallbacks).
+This is the contract for writing Lab modules for MDDT.
 
 ---
 
@@ -621,7 +621,7 @@ host.pattern.trimToLength(patternObj, 16);
 
 ---
 
-## 12) MIDI API (`host.midi`)
+## 12) MIDI APIs (`host.midi` + `host.md`)
 
 Stable wrapper around the currently selected MIDI ports.
 
@@ -656,6 +656,174 @@ unsub();
 If no output is selected, `host.midi.out` is `null`. Don’t throw; show a warning in your UI.
 
 ---
+
+
+
+### Machinedrum live MIDI contract (Skewclid / Nodetrix compatible)
+
+If your Lab module is meant to control a **Machinedrum** (MKI/MKII) the same way the built-in live modules do, **do not invent a “generic synth” mapping** like:
+
+- “track 1 = MIDI channel 1, track 2 = MIDI channel 2…”
+- “trigger note is always 0”
+- “pitch/param 1 is always CC16”
+
+That mapping will usually make the Machinedrum **ignore your messages**, which looks like “no MIDI is being sent”.
+
+MDDT’s live-MIDI modules (Skewclid, Nodetrix) rely on a specific **MD Live MIDI contract**:
+
+#### 1) Base channel (`globalData.midiBase`)
+
+- The Machinedrum base channel is stored in `globalData.midiBase`.
+- Encoding:
+  - `0..12` → MIDI channels `1..13` (but in raw MIDI bytes these are `0..12`)
+  - `13` → **OFF** (do not send)
+
+Why only up to 13? Because CC uses **four** channels (base + 0..3), so base must leave room for `base+3` within MIDI channels 1..16.
+
+#### 2) Track triggers (notes) always go on the base channel
+
+- **Note channel** = base channel
+- **Trig note number** depends on the MD **keymap** (next section)
+- Send Note On (and usually Note Off shortly after)
+
+#### 3) Keymap resolves track → note number
+
+The global keymap may appear as either:
+
+- **128-byte** note→track map (real MD global dump; values are track IDs 0..15)
+- **16-byte** track→note map (some hosts/tools use this shape)
+
+MDDT resolves it to a canonical: **track 1..16 → note 0..127**, with a safe default fallback:
+
+`[36,38,40,41,43,45,47,48,50,52,53,55,57,59,60,62]`
+
+#### 4) Parameter CC numbers are track-dependent (`MD_CC_MAP`)
+
+For live CC control, the CC number for **P1..P24** depends on track.
+
+Example (P1):
+
+- Track 1 P1 = `CC 16`
+- Track 2 P1 = `CC 40`
+- Track 3 P1 = `CC 72`
+- Track 4 P1 = `CC 96`
+- …and the pattern repeats per 4-track group
+
+So “CC16 for pitch” only works for tracks 1 / 5 / 9 / 13 (in the shipped map).
+
+#### 5) CC channel routing is per 4-track group
+
+CC does **not** go out on the note channel for all tracks.
+
+- Let `trackNum` be **1..16**
+- `group = floor((trackNum - 1) / 4)` → 0..3
+- **CC channel** = `baseChan + group`
+
+Tracks 1–4 use `base`, 5–8 use `base+1`, 9–12 use `base+2`, 13–16 use `base+3`.
+
+---
+
+### Machinedrum helpers (`host.md`) — use this instead of hand-rolling bytes
+
+To make Lab modules (and LLM generation) reliable, the Host API exposes a Machinedrum helper layer:
+
+```ts
+type MDHelpers = {
+  // Base channel: 0..12 (raw MIDI channel), or null if OFF/unavailable
+  getBaseChannel(): number | null;
+
+  // Track trig note resolution (trackNum is 1..16)
+  getTrackNoteMap(): number[];           // length 16
+  getTrackNote(trackNum: number): number | null;
+
+  // Channel routing
+  getNoteChannel(): number | null;       // == base
+  getCcChannel(trackNum: number): number | null;
+
+  // CC mapping (p can be 1..24 for P1..P24, or 0..23 as a 0-based index)
+  getParamCC(trackNum: number, p: number): number | null;
+
+  // Sending (returns false if base is OFF or MIDI Out is missing)
+  sendTrackTrig(trackNum: number, vel?: number, timestampMs?: number, gateMs?: number): boolean;
+  sendTrackParam(trackNum: number, p: number, value: number, timestampMs?: number): boolean;
+
+  // Optional convenience
+  sendTrackLevel(trackNum: number, value: number, timestampMs?: number): boolean;
+  sendTrackMute(trackNum: number, muted: boolean, timestampMs?: number): boolean;
+
+  // Debug
+  describeTrack(trackNum: number): any;
+};
+```
+
+**Important**
+- `trackNum` is **1..16** (Machinedrum track number).
+- If MIDI Out isn’t selected (`host.midi.out === null`) or base is OFF (`host.md.getBaseChannel() === null`), these return `false` and do nothing — your module should show a visible warning.
+
+#### Examples
+
+Trigger track 1 immediately:
+
+```js
+host.md.sendTrackTrig(1, 100);
+```
+
+Trigger track 9 slightly in the future:
+
+```js
+const tMs = performance.now() + 20;
+host.md.sendTrackTrig(9, 110, tMs, 80);
+```
+
+Set Track 2 P1 (param 1) to 90:
+
+```js
+host.md.sendTrackParam(2, 1, 90);
+```
+
+Sweep Track 5 P3 using the correct CC + CC channel routing automatically:
+
+```js
+let v = 0;
+const id = setInterval(() => {
+  host.md.sendTrackParam(5, 3, v);
+  v = (v + 1) & 0x7F;
+}, 30);
+
+// later:
+clearInterval(id);
+```
+
+---
+
+### MIDI clock + transport (real-time messages)
+
+`host.midi.send()` can also send MIDI real-time / transport bytes:
+
+- Clock tick: `0xF8` (24 pulses per quarter note)
+- Start: `0xFA`
+- Continue: `0xFB`
+- Stop: `0xFC`
+
+Minimal clock generator:
+
+```js
+function startClock({ midi, cleanup, bpm = 120 }) {
+  const intervalMs = (60_000 / bpm) / 24;
+  const id = setInterval(() => midi.send([0xF8]), intervalMs);
+  cleanup.add(() => clearInterval(id));
+}
+```
+
+Transport start/stop (often paired with clock):
+
+```js
+midi.send([0xFA]); // start
+midi.send([0xFC]); // stop
+```
+
+Note: not all devices want you to generate clock; some want to be the clock source.
+
 
 ## 13) Audio / Tone.js API (`host.audio`)
 
@@ -841,6 +1009,60 @@ function startCcLfo({ midi, cleanup, opts }) {
 
 ---
 
+
+### 15.4 Machinedrum step sequencer (track trigs + param CC via `host.md`)
+
+This version follows the **Machinedrum live MIDI contract** automatically (base channel, keymap notes, CC map, group channels).
+
+```js
+async function startMdStepSeq({ host, midi, audio, cleanup, opts }) {
+  // Requires a user gesture (Start button)
+  const Tone = await audio.ensureToneStarted();
+
+  // Machinedrum track number (1..16)
+  const track = Math.max(1, Math.min(16, opts.track ?? 1));
+
+  const bpm = opts.bpm ?? 120;
+  const gateMs = opts.gateMs ?? 80;
+
+  // Optional param automation: P1..P24
+  const paramNum = opts.paramNum ?? null; // e.g. 1 = P1
+
+  // 16-step pattern
+  const pattern = opts.pattern ?? [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0];
+
+  try { Tone.Transport.bpm.value = bpm; } catch (_) {}
+
+  let step = 0;
+  const transportWasRunning = (Tone.Transport.state === "started");
+
+  const loop = new Tone.Loop((time) => {
+    const tMs = audio.toneTimeToMidiMs(time);
+
+    if (pattern[step % pattern.length]) {
+      host.md.sendTrackTrig(track, 110, tMs, gateMs);
+
+      // Example: wiggle param around 64
+      if (paramNum != null) {
+        const v = 64 + Math.round(Math.sin(step * 0.35) * 40);
+        host.md.sendTrackParam(track, paramNum, v, tMs);
+      }
+    }
+
+    step++;
+  }, "16n").start(0);
+
+  cleanup.add(() => { try { loop.stop(); loop.dispose(); } catch (_) {} });
+
+  if (!transportWasRunning) {
+    Tone.Transport.start();
+    cleanup.add(() => { try { Tone.Transport.stop(); } catch (_) {} });
+  }
+}
+```
+
+Tip: if `host.md.getBaseChannel()` is `null`, the Machinedrum base channel is OFF — show a UI hint telling the user to set it to 1–13 in the Global page.
+
 ## 16) Common pitfalls (especially for LLM-generated modules)
 
 - Keep `mount()` synchronous; never `async mount()`.
@@ -877,6 +1099,11 @@ HOST API
 MIDI
 - Use host.midi.in / host.midi.out / host.midi.send() / host.midi.onMessage().
 - If host.midi.out is null, show a visible warning and do not throw.
+
+MACHINEDRUM LIVE MIDI (if targeting the Machinedrum)
+- Do NOT assume track→MIDI channel, "note 0", or "CC16 = pitch". That will often be silent.
+- Use the helper layer: host.md.sendTrackTrig(trackNum, vel, tMs) and host.md.sendTrackParam(trackNum, p, value, tMs).
+- Track numbers are 1..16. If host.md.getBaseChannel() is null, the MD base channel is OFF and live MIDI should not be sent.
 
 TONE (if used)
 - Use host.audio.ensureToneStarted() ONLY from a user click (Start button).
