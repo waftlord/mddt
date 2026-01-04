@@ -56,12 +56,12 @@ document.addEventListener('DOMContentLoaded', function () {
         “License”); you may not use this software except in compliance with the
         License.
       </p>
-      <p>
-        You may obtain a copy of the License at:<br>
-        <a href="https://www.apache.org/licenses/LICENSE-2.0">
-          https://www.apache.org/licenses/LICENSE-2.0
-        </a>
-      </p>
+   <p>
+  You may obtain a copy of the License at:<br>
+  <a href="https://www.apache.org/licenses/LICENSE-2.0">
+    https://www.apache.org/licenses/LICENSE-2.0
+  </a>
+</p>
       <p>
         Unless required by applicable law or agreed to in writing, software
         distributed under the License is distributed on an <strong>“AS IS”</strong>
@@ -82,11 +82,11 @@ document.addEventListener('DOMContentLoaded', function () {
         consider supporting its development. Support helps cover hosting and continued development and maintenance.
       </p>
 
-      <p>
-      Contributions, bug reports, and feature suggestions are welcome —
-      please open an issue or pull request at
-      <a href="https://github.com/waftlord/mddt">github.com/waftlord/mddt</a>
-    </p>
+  <p>
+  Contributions, bug reports, and feature suggestions are welcome —
+  please open an issue or pull request at
+  <a href="https://github.com/waftlord/mddt">github.com/waftlord/mddt</a>
+</p>
 
       <h3>Contact</h3>
  <p>

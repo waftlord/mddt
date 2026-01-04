@@ -1,16 +1,10 @@
-# MDDT (Web)
+# MDDT V2.0
 
-Browser-based tool for working with **Elektron Machinedrum SPS-1 (MK1 / MK2 / UW) SysEx** over **WebMIDI**.
+Browser-based tool for working with **Elektron Machinedrum SPS-1 (MK1 / MK2 / UW)** data over **WebMIDI**.
 
-## Live app
+[wftlrd.uk/mddt](https://wftlrd.uk/mddt/)
 
-Hosted externally here:
-
-```text
-wftlrd.uk/mddt/
-```
-
-## Safety note
+## Safety
 
 **Sending SysEx can overwrite data on your device. Always keep backups.**  
 Use at your own risk. This software is provided **“AS IS”**.
